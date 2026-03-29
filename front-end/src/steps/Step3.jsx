@@ -82,7 +82,7 @@ const GRID_CONFIG = {
   topRatio: 0.19,
   bottomRatio: 0.08,
   gapRatio: 0.011,
-  insetRatio: 0.06,
+  insetRatio: 0.08,
 }
 
 const DEFAULT_CALIBRATION = {
@@ -791,6 +791,42 @@ async function traceGlyphAsync(inkCanvas, width, height) {
   })
 }
 
+// ─── Smart crop: หา bounding box ของ ink จริงใน cell ───
+// รับ full cell imageData → return {x,y,w,h} ของ ink content
+// มี padding รอบข้างเพื่อไม่ให้หางตัวอักษรโดนตัด
+function findInkBoundingBox(data, width, height) {
+  let minX = width, maxX = 0, minY = height, maxY = 0
+  let found = false
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4
+      const r = data[idx], g = data[idx+1], b = data[idx+2], a = data[idx+3]
+      if (a < 30) continue
+      const lum = r * 0.2126 + g * 0.7152 + b * 0.0722
+      // นับ pixel ที่มืด (ลายมือ) หรือ red-dominant (ปากกาแดง)
+      const isInk = lum < 200 || (r > 140 && r - b > 50 && r - g > 30)
+      if (!isInk) continue
+      if (x < minX) minX = x
+      if (x > maxX) maxX = x
+      if (y < minY) minY = y
+      if (y > maxY) maxY = y
+      found = true
+    }
+  }
+
+  if (!found) return null
+
+  // padding รอบ bounding box เพื่อให้หางและส่วนยื่นไม่โดนตัด
+  const pad = Math.round(Math.min(width, height) * 0.08)
+  return {
+    x: Math.max(0, minX - pad),
+    y: Math.max(0, minY - pad),
+    w: Math.min(width, maxX - minX + 1 + pad * 2),
+    h: Math.min(height, maxY - minY + 1 + pad * 2),
+  }
+}
+
 function extractGlyphsFromCanvas({ ctx, pageWidth, pageHeight, chars, calibration, cellRects }) {
   // If we have cell rects from registration dots, use them directly — survives GoodNotes rescaling
   const useRegDots = cellRects && cellRects.length >= chars.length
@@ -805,44 +841,44 @@ function extractGlyphsFromCanvas({ ctx, pageWidth, pageHeight, chars, calibratio
     const row = Math.floor(i / GRID_COLS)
     const col = i % GRID_COLS
 
-    let x, y, size
+    let cellX, cellY, cellW, cellH
     if (useRegDots && cellRects[i]) {
       const rect = cellRects[i]
-      const insetR = Math.round(rect.w * GRID_CONFIG.insetRatio)
-      x = rect.x; y = rect.y
-      size = Math.max(20, Math.round(Math.min(rect.w, rect.h) - insetR * 2))
+      const insetR = Math.round(Math.min(rect.w, rect.h) * GRID_CONFIG.insetRatio)
+      cellX = clamp(Math.round(rect.x) + insetR, 0, pageWidth - 1)
+      cellY = clamp(Math.round(rect.y) + insetR, 0, pageHeight - 1)
+      cellW = Math.max(20, Math.round(rect.w) - insetR * 2)
+      cellH = Math.max(20, Math.round(rect.h) - insetR * 2)
     } else {
       const inset = Math.round(cellSize * GRID_CONFIG.insetRatio)
-      x = Math.round(startX + col * (cellSize + gap))
-      y = Math.round(startY + row * (cellSize + gap))
-      size = Math.max(20, Math.round(cellSize - inset * 2))
+      cellX = clamp(Math.round(startX + col * (cellSize + gap)) + inset, 0, pageWidth - 1)
+      cellY = clamp(Math.round(startY + row * (cellSize + gap)) + inset, 0, pageHeight - 1)
+      cellW = Math.max(20, Math.round(cellSize - inset * 2))
+      cellH = cellW
     }
+    const cropW = Math.min(cellW, pageWidth - cellX)
+    const cropH = Math.min(cellH, pageHeight - cellY)
 
-    const inset = useRegDots && cellRects[i]
-      ? Math.round(Math.min(cellRects[i].w, cellRects[i].h) * GRID_CONFIG.insetRatio)
-      : Math.round(cellSize * GRID_CONFIG.insetRatio)
-
-    const cropX = clamp(x + inset, 0, Math.max(0, pageWidth - size))
-    const cropY = clamp(y + inset, 0, Math.max(0, pageHeight - size))
-
-    const imageData = ctx.getImageData(cropX, cropY, size, size)
+    const imageData = ctx.getImageData(cellX, cellY, cropW, cropH)
     const cropCanvas = document.createElement("canvas")
-    cropCanvas.width = size
-    cropCanvas.height = size
+    cropCanvas.width = cropW
+    cropCanvas.height = cropH
     const cropCtx = cropCanvas.getContext("2d")
     cropCtx?.putImageData(imageData, 0, 0)
-    const inkOnlyData = buildInkOnlyImageData(imageData, size, size)
+
+    const inkOnlyData = buildInkOnlyImageData(imageData, cropW, cropH)
     const inkCanvas = document.createElement("canvas")
-    inkCanvas.width = size
-    inkCanvas.height = size
+    inkCanvas.width = cropW
+    inkCanvas.height = cropH
     const inkCtx = inkCanvas.getContext("2d")
     inkCtx?.putImageData(inkOnlyData, 0, 0)
 
-    const { status, inkRatio, edgeRatio } = classifyGlyph(imageData, size, size)
+    const { status, inkRatio, edgeRatio } = classifyGlyph(imageData, cropW, cropH)
 
     return {
       _inkCanvas: inkCanvas,
-      _inkSize: size,
+      _inkW: cropW,
+      _inkH: cropH,
       id: `${i}-${ch}`,
       index: i + 1,
       ch,
@@ -863,11 +899,11 @@ async function traceAllGlyphs(rawGlyphs) {
   const results = await Promise.all(
     rawGlyphs.map(async g => {
       if (!g._inkCanvas || g.status === "missing") {
-        const { _inkCanvas, _inkSize, ...rest } = g
+        const { _inkCanvas, _inkW, _inkH, ...rest } = g
         return { ...rest, svgPath: null, viewBox: "0 0 100 100" }
       }
-      const traced = await traceGlyphAsync(g._inkCanvas, g._inkSize, g._inkSize)
-      const { _inkCanvas, _inkSize, ...rest } = g
+      const traced = await traceGlyphAsync(g._inkCanvas, g._inkW, g._inkH)
+      const { _inkCanvas, _inkW, _inkH, ...rest } = g
       return {
         ...rest,
         svgPath: traced?.path || null,
