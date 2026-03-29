@@ -268,7 +268,7 @@ export default function App() {
       />
     ),
     4: <Step4 selected={selected} templateChars={templateChars} extractedGlyphs={analyzedGlyphs} />,
-    5: <Step5 />,
+    5: <Step5 selected={selected} templateChars={templateChars} extractedGlyphs={analyzedGlyphs} />,
   }
   const nextLabel = {
     1: selected.size > 0 ? "Generate Template →" : "ถัดไป →",
