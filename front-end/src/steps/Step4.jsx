@@ -55,13 +55,13 @@ export default function Step4({ selected, templateChars = [], extractedGlyphs = 
     [selected, templateChars]
   )
 
-  const hasFileSource = extractedGlyphs.length > 0
+  const hasFileSource = extractedGlyphs && extractedGlyphs.length > 0
   const [pickedGlyphId, setPickedGlyphId] = useState("")
   const [pickedChar, setPickedChar] = useState("")
 
   const activeFileGlyph = useMemo(() => {
     if (!hasFileSource) return null
-    return extractedGlyphs.find(g => g.id === pickedGlyphId) || extractedGlyphs[0]
+    return extractedGlyphs.find(g => g.id === pickedGlyphId) || extractedGlyphs[0] || null
   }, [hasFileSource, extractedGlyphs, pickedGlyphId])
 
   const baseChar = useMemo(() => {
@@ -71,7 +71,7 @@ export default function Step4({ selected, templateChars = [], extractedGlyphs = 
   }, [hasFileSource, activeFileGlyph, pickedChar, sourceChars])
 
   const basePreview = hasFileSource
-    ? activeFileGlyph?.previewInk || activeFileGlyph?.preview || ""
+    ? activeFileGlyph?.preview || ""
     : ""
 
   const variants = useMemo(() => {
@@ -90,6 +90,12 @@ export default function Step4({ selected, templateChars = [], extractedGlyphs = 
     const randomIndex = Math.floor(Math.random() * sourceChars.length)
     setPickedChar(sourceChars[randomIndex])
   }
+
+  // ==========================================
+  // 🕵️‍♂️ เครื่องมือดักจับบั๊ก (ดูผลลัพธ์ได้ใน F12 -> Console)
+  // ==========================================
+  console.log("📦 ข้อมูลทั้งหมดที่ส่งมาจาก Step 3:", extractedGlyphs);
+  console.log("🎯 ตัวอักษรที่กำลังเลือกอยู่:", activeFileGlyph);
 
   return (
     <div className="fade-up">
@@ -169,13 +175,13 @@ export default function Step4({ selected, templateChars = [], extractedGlyphs = 
 
           <p style={{ fontSize: 11, color: C.inkLt, marginTop: 8 }}>
             {hasFileSource
-              ? "Step 4 กำลังดึงตัวอย่างจากไฟล์ที่แยกใน Step 3 แล้วสร้าง ver 1, ver 2, ver 3 จากรูปตัวเขียนจริง"
+              ? "Step 4 ดึงเส้น SVG จากไฟล์ และดัดพิกัดเส้นหมึก (Vector Deformation) สร้างเป็น 3 เวอร์ชัน"
               : "ยังไม่มีข้อมูลจากไฟล์ ระบบจะใช้ตัวอักษรมาตรฐานและ DNA จำลองก่อน"}
           </p>
 
           {hasFileSource && activeFileGlyph && (
             <p style={{ fontSize: 11, color: C.inkLt, marginTop: 4 }}>
-              ตัวที่เลือก: ช่อง {activeFileGlyph.index} • {activeFileGlyph.ch} • สถานะ {activeFileGlyph.status.toUpperCase()}
+              ตัวที่เลือก: ช่อง {activeFileGlyph.index || "-"} • {activeFileGlyph.ch || "?"} • สถานะ {activeFileGlyph.status ? String(activeFileGlyph.status).toUpperCase() : "UNKNOWN"}
             </p>
           )}
         </div>
@@ -228,7 +234,48 @@ export default function Step4({ selected, templateChars = [], extractedGlyphs = 
                   />
                 )}
 
-                {basePreview ? (
+                {/* --- ส่วนที่ใช้แสดงและดัด SVG ลายมือ (แบบกัน Error 100%) --- */}
+                {hasFileSource && activeFileGlyph && typeof activeFileGlyph.svgPath === "string" && activeFileGlyph.svgPath !== "M 0 0" ? (
+                  <svg
+                    viewBox={activeFileGlyph.viewBox || "0 0 100 100"}
+                    style={{
+                      width: "80%",
+                      height: "80%",
+                      overflow: "visible",
+                    }}
+                  >
+                    <g style={{ transformOrigin: "center" }}>
+                      <path
+                        d={activeFileGlyph.svgPath.replace(/([ML])\s+([-]?[\d.]+)\s+([-]?[\d.]+)/g, (match, cmd, xStr, yStr) => {
+                          try {
+                            let x = parseFloat(xStr);
+                            let y = parseFloat(yStr);
+
+                            if (isNaN(x) || isNaN(y)) return match;
+
+                            if (v.version === 2) {
+                              const drop = (y / 100) * 5; 
+                              y += drop;
+                              x -= (y / 100) * 1.5; 
+                            } else if (v.version === 3) {
+                              x += Math.sin(y * 0.15) * 1.5;
+                              y += Math.cos(x * 0.15) * 1.5;
+                            }
+
+                            return `${cmd} ${x.toFixed(1)} ${y.toFixed(1)}`;
+                          } catch (e) {
+                            return match; // ถ้าดัดเส้นพัง ให้โชว์เส้นเดิม
+                          }
+                        })}
+                        fill="none"
+                        stroke={C.ink || "#000"}
+                        strokeWidth={v.weight > 500 ? "3.5" : "2.5"} 
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </g>
+                  </svg>
+                ) : basePreview ? (
                   <img
                     src={basePreview}
                     alt={`File glyph ${baseChar} ver ${v.version}`}
@@ -247,7 +294,7 @@ export default function Step4({ selected, templateChars = [], extractedGlyphs = 
                       display: "inline-block",
                       fontSize: 108,
                       lineHeight: 1,
-                      color: C.ink,
+                      color: C.ink || "#000",
                       fontWeight: v.weight,
                       fontFamily: "'TH Sarabun New', 'Noto Sans Thai', 'Tahoma', sans-serif",
                       transform: `translate(${v.shiftX}px, ${v.shiftY}px) rotate(${v.rotate}deg) skewX(${v.skewX}deg) scale(${v.scaleX}, ${v.scaleY})`,
@@ -258,9 +305,19 @@ export default function Step4({ selected, templateChars = [], extractedGlyphs = 
                     {baseChar}
                   </span>
                 )}
+                {/* --- จบส่วน SVG --- */}
+
               </div>
               <p style={{ marginTop: 8, fontSize: 10, color: C.inkLt, lineHeight: 1.6 }}>
-                rotate {v.rotate.toFixed(2)}° • skew {v.skewX.toFixed(2)}° • scale {v.scaleX.toFixed(3)}/{v.scaleY.toFixed(3)}
+                {hasFileSource ? (
+                  <>
+                    {v.version === 1 && "Ver 1: ต้นฉบับ Perfect"}
+                    {v.version === 2 && "Ver 2: หางตก (เส้นย้อย ปัดซ้าย)"}
+                    {v.version === 3 && "Ver 3: ไม่ Perfect (เส้นแกว่ง)"}
+                  </>
+                ) : (
+                  `rotate ${v.rotate.toFixed(2)}° • skew ${v.skewX.toFixed(2)}° • scale ${v.scaleX.toFixed(3)}`
+                )}
               </p>
             </div>
           ))}

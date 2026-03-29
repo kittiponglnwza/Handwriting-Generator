@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+﻿import { useEffect, useMemo, useRef, useState } from "react"
 import { GlobalWorkerOptions, getDocument } from "pdfjs-dist"
 import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url"
 import Btn from "../components/Btn"
@@ -681,6 +681,109 @@ async function collectTextAnchors(page, viewport, maxIndex) {
   }
 }
 
+// ───────────────────────────────────────────────────────────────
+// SVG Tracing: แปลง inkCanvas → SVG path โดยไม่ต้องใช้ library
+// ใช้ marching squares แบบ simplified เพื่อ trace contour จาก bitmap
+// ───────────────────────────────────────────────────────────────
+function traceToSVGPath(inkCanvas, width, height) {
+  try {
+    const ctx2 = inkCanvas.getContext("2d")
+    if (!ctx2) return null
+
+    const imageData = ctx2.getImageData(0, 0, width, height)
+    const { data } = imageData
+
+    // สร้าง binary mask: 1 = ink (pixel มืด), 0 = background
+    const threshold = 180
+    const mask = new Uint8Array(width * height)
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = (y * width + x) * 4
+        const r = data[idx], g = data[idx + 1], b = data[idx + 2], a = data[idx + 3]
+        if (a < 50) { mask[y * width + x] = 0; continue }
+        const lum = r * 0.2126 + g * 0.7152 + b * 0.0722
+        mask[y * width + x] = lum < threshold ? 1 : 0
+      }
+    }
+
+    // ตรวจว่ามี ink จริงมั้ย
+    const inkCount = mask.reduce((s, v) => s + v, 0)
+    if (inkCount < 10) return null
+
+    // Scale factor: normalize path ให้อยู่ใน viewBox 0 0 100 100
+    const scaleX = 100 / width
+    const scaleY = 100 / height
+
+    // ─── Outline tracing แบบ simple run-length scan ───
+    // สร้าง path จาก contour ของ ink regions
+    // วิธี: สแกนทุก row หา runs ของ ink แล้วสร้าง polyline
+    const pathCmds = []
+    const STEP = Math.max(1, Math.floor(Math.min(width, height) / 80))
+
+    // ใช้ connected component tracing แบบ row-scan
+    let prevRuns = []
+    for (let y = 0; y < height; y += STEP) {
+      const runs = []
+      let inRun = false
+      let runStart = 0
+
+      for (let x = 0; x < width; x++) {
+        const isInk = mask[y * width + x] === 1
+        if (isInk && !inRun) {
+          inRun = true
+          runStart = x
+        } else if (!isInk && inRun) {
+          inRun = false
+          runs.push({ start: runStart, end: x - 1 })
+        }
+      }
+      if (inRun) runs.push({ start: runStart, end: width - 1 })
+
+      // สร้าง path จาก runs ของ row นี้
+      for (const run of runs) {
+        const midX = ((run.start + run.end) / 2 * scaleX).toFixed(1)
+        const midY = (y * scaleY).toFixed(1)
+
+        // หา matching run ใน prev row เพื่อ connect เป็น stroke
+        const matched = prevRuns.find(pr =>
+          pr.start <= run.end + STEP * 2 && pr.end >= run.start - STEP * 2
+        )
+
+        if (matched) {
+          const prevMidX = ((matched.start + matched.end) / 2 * scaleX).toFixed(1)
+          const prevMidY = ((y - STEP) * scaleY).toFixed(1)
+          pathCmds.push(`M ${prevMidX} ${prevMidY} L ${midX} ${midY}`)
+        } else {
+          // run ใหม่ที่ไม่ต่อจาก row ก่อน → เริ่ม stroke ใหม่
+          const x1 = (run.start * scaleX).toFixed(1)
+          const x2 = (run.end * scaleX).toFixed(1)
+          pathCmds.push(`M ${x1} ${midY} L ${x2} ${midY}`)
+        }
+      }
+
+      prevRuns = runs
+    }
+
+    if (pathCmds.length === 0) return null
+
+    return {
+      path: pathCmds.join(" "),
+      viewBox: "0 0 100 100",
+    }
+  } catch {
+    return null
+  }
+}
+
+async function traceGlyphAsync(inkCanvas, width, height) {
+  return new Promise(resolve => {
+    // ทำใน microtask เพื่อไม่บล็อก main thread
+    setTimeout(() => {
+      resolve(traceToSVGPath(inkCanvas, width, height))
+    }, 0)
+  })
+}
+
 function extractGlyphsFromCanvas({ ctx, pageWidth, pageHeight, chars, calibration, cellRects }) {
   // If we have cell rects from registration dots, use them directly — survives GoodNotes rescaling
   const useRegDots = cellRects && cellRects.length >= chars.length
@@ -731,6 +834,8 @@ function extractGlyphsFromCanvas({ ctx, pageWidth, pageHeight, chars, calibratio
     const { status, inkRatio, edgeRatio } = classifyGlyph(imageData, size, size)
 
     return {
+      _inkCanvas: inkCanvas,
+      _inkSize: size,
       id: `${i}-${ch}`,
       index: i + 1,
       ch,
@@ -739,8 +844,31 @@ function extractGlyphsFromCanvas({ ctx, pageWidth, pageHeight, chars, calibratio
       edgeRatio,
       preview: cropCanvas.toDataURL("image/png"),
       previewInk: inkCanvas.toDataURL("image/png"),
+      svgPath: null,
+      viewBox: "0 0 100 100",
     }
   })
+}
+
+// ─── Async pipeline: trace SVG สำหรับทุก glyph ───
+// เรียกหลัง extractGlyphsFromCanvas แล้ว inject svgPath กลับเข้าไป
+async function traceAllGlyphs(rawGlyphs) {
+  const results = await Promise.all(
+    rawGlyphs.map(async g => {
+      if (!g._inkCanvas || g.status === "missing") {
+        const { _inkCanvas, _inkSize, ...rest } = g
+        return { ...rest, svgPath: null, viewBox: "0 0 100 100" }
+      }
+      const traced = await traceGlyphAsync(g._inkCanvas, g._inkSize, g._inkSize)
+      const { _inkCanvas, _inkSize, ...rest } = g
+      return {
+        ...rest,
+        svgPath: traced?.path || null,
+        viewBox: traced?.viewBox || "0 0 100 100",
+      }
+    })
+  )
+  return results
 }
 
 function getBlueSignal(data, pageWidth, pageHeight, x, y) {
@@ -1161,6 +1289,8 @@ export default function Step3({ selected, pdfFile, templateChars = [], onGlyphsU
   const [autoAligning, setAutoAligning] = useState(false)
   const [autoInfo, setAutoInfo] = useState("")
   const [showDebug, setShowDebug] = useState(false)
+  const [tracedGlyphs, setTracedGlyphs] = useState([])
+  const [tracing, setTracing] = useState(false)
 
   const runAutoAlign = () => {
     const store = pageRef.current
@@ -1429,18 +1559,38 @@ export default function Step3({ selected, pdfFile, templateChars = [], onGlyphsU
   const glyphs = analysisResult.glyphs
   const isPartialRead = chars.length > analysisResult.pageCharsCount
 
-  const summary = useMemo(() => {
-    const ok = glyphs.filter(g => g.status === "ok").length
-    const missing = glyphs.filter(g => g.status === "missing").length
-    const overflow = glyphs.filter(g => g.status === "overflow").length
-    return { ok, missing, overflow, total: glyphs.length }
+  // ─── SVG Tracing Effect ───
+  // เมื่อ glyphs เปลี่ยน → trace SVG async แล้ว setTracedGlyphs
+  useEffect(() => {
+    if (glyphs.length === 0) {
+      setTracedGlyphs([])
+      return
+    }
+    let canceled = false
+    setTracing(true)
+    traceAllGlyphs(glyphs).then(traced => {
+      if (canceled) return
+      setTracedGlyphs(traced)
+      setTracing(false)
+    })
+    return () => { canceled = true }
   }, [glyphs])
 
-  const activeGlyph = glyphs.find(g => g.id === activeId) || null
+  // ใช้ tracedGlyphs ถ้าพร้อม ไม่งั้นใช้ glyphs ปกติ (เพื่อ UI ไม่กระตุก)
+  const displayGlyphs = tracedGlyphs.length > 0 ? tracedGlyphs : glyphs
+
+  const summary = useMemo(() => {
+    const ok = displayGlyphs.filter(g => g.status === "ok").length
+    const missing = displayGlyphs.filter(g => g.status === "missing").length
+    const overflow = displayGlyphs.filter(g => g.status === "overflow").length
+    return { ok, missing, overflow, total: displayGlyphs.length }
+  }, [displayGlyphs])
+
+  const activeGlyph = displayGlyphs.find(g => g.id === activeId) || null
 
   useEffect(() => {
-    onGlyphsUpdate(glyphs)
-  }, [glyphs, onGlyphsUpdate])
+    onGlyphsUpdate(displayGlyphs)
+  }, [displayGlyphs, onGlyphsUpdate])
 
   const stStyle = {
     ok: { border: C.sageMd, bg: C.bgCard, textColor: C.sage, label: "OK" },
@@ -1557,6 +1707,15 @@ export default function Step3({ selected, pdfFile, templateChars = [], onGlyphsU
 
       {error && <InfoBox color="amber">{error}</InfoBox>}
 
+      {tracing && (
+        <InfoBox color="sage">⏳ กำลัง trace SVG จากลายมือ… รอแป๊บนึงนะ</InfoBox>
+      )}
+      {!tracing && displayGlyphs.length > 0 && displayGlyphs.some(g => g.svgPath) && (
+        <InfoBox color="sage">
+          ✅ Trace SVG สำเร็จ {displayGlyphs.filter(g => g.svgPath).length}/{displayGlyphs.length} ตัว — Step 4 พร้อมดัด vector แล้ว
+        </InfoBox>
+      )}
+
       <div
         style={{
           background: C.bgCard,
@@ -1658,7 +1817,7 @@ export default function Step3({ selected, pdfFile, templateChars = [], onGlyphsU
           gap: 8,
         }}
       >
-        {glyphs.map(g => {
+        {displayGlyphs.map(g => {
           const s = stStyle[g.status]
           const isActive = activeId === g.id
 
