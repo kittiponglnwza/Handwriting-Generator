@@ -9,7 +9,8 @@ GlobalWorkerOptions.workerSrc = pdfWorker
 
 const GRID_COLS = 6
 const TEMPLATE_CODE_RE = /^HG(\d{1,4})$/i
-const TEMPLATE_INDEX_RE = /^(\d{1,3})$/
+const TEMPLATE_INDEX_RE = /^(\d{1,4})$/
+const MIN_TRUSTED_INDEX_TARGETS = 6
 const GRID_CONFIG = {
   padXRatio: 0.075,
   topRatio: 0.19,
@@ -21,6 +22,17 @@ const GRID_CONFIG = {
 const DEFAULT_CALIBRATION = {
   offsetX: 0,
   offsetY: 0,
+  cellAdjust: 0,
+  gapAdjust: 0,
+}
+
+// Measured from HG anchor positions in template PDF at scale=3:
+//   HG001 x1=352.6px → cell left=116px, baseStartX=133.9 → offsetX=-18
+//   HG001 y0=370.3px → cell top=344.3px, desiredStartY=479.9 → offsetY=-136
+//   row pitch actual=256.5px ≈ computed=256.1px → cellAdjust=0
+const TEMPLATE_CALIBRATION = {
+  offsetX: -18,
+  offsetY: -136,
   cellAdjust: 0,
   gapAdjust: 0,
 }
@@ -55,13 +67,13 @@ function buildTargetsFromPages(pages) {
   const source = codeIndices.size > 0 ? codeIndices : numericIndices
   if (source.size === 0) return []
 
-  const sorted = [...source].sort((a, b) => a - b)
   let contiguousCount = 0
-  while (source.has(contiguousCount + 1)) {
-    contiguousCount += 1
-  }
+  while (source.has(contiguousCount + 1)) contiguousCount += 1
 
-  const rawCount = contiguousCount > 0 ? contiguousCount : sorted[sorted.length - 1]
+  // Numeric-only anchors are noisy (page numbers, headers). Trust only when enough contiguous targets exist.
+  if (codeIndices.size === 0 && contiguousCount < MIN_TRUSTED_INDEX_TARGETS) return []
+
+  const rawCount = contiguousCount > 0 ? contiguousCount : source.size
   const count = Math.max(1, Math.min(1024, rawCount))
   return Array.from({ length: count }, (_, i) => String(i + 1))
 }
@@ -215,20 +227,27 @@ function getPageCapacity(pageHeight, startY, cellSize, gap) {
 
 async function collectTextAnchors(page, viewport, maxIndex) {
   const textContent = await page.getTextContent()
+  const items = textContent.items || []
   const rawAnchors = []
 
-  for (const item of textContent.items || []) {
+  for (let i = 0; i < items.length; i += 1) {
+    const item = items[i]
     const raw = String(item?.str || "").trim()
     if (!raw) continue
 
     const codeMatch = raw.match(TEMPLATE_CODE_RE)
     const indexMatch = raw.match(TEMPLATE_INDEX_RE)
+    const prevRaw = String(items[i - 1]?.str || "").trim()
+    const hasCodePrefix = /^HG$/i.test(prevRaw)
     let kind = null
     let index = 0
 
     if (codeMatch) {
       kind = "code"
       index = Number(codeMatch[1])
+    } else if (indexMatch && hasCodePrefix) {
+      kind = "code"
+      index = Number(indexMatch[1])
     } else if (indexMatch) {
       kind = "index"
       index = Number(indexMatch[1])
@@ -280,6 +299,7 @@ async function collectTextAnchors(page, viewport, maxIndex) {
   }
 
   const anchors = [...byIndex.values()].sort((a, b) => a.index - b.index)
+  const codeAnchorCount = anchors.filter(a => a.kind === "code").length
   const allIndices = anchors.map(a => a.index)
   const startIndex = allIndices.length > 0 ? Math.min(...allIndices) : null
   let contiguousCount = 0
@@ -294,7 +314,8 @@ async function collectTextAnchors(page, viewport, maxIndex) {
     byIndex,
     startIndex,
     contiguousCount,
-    hasCodeAnchors: anchors.some(a => a.kind === "code"),
+    hasCodeAnchors: codeAnchorCount > 0,
+    codeAnchorCount,
   }
 }
 
@@ -462,7 +483,7 @@ function findAutoCalibration(page, chars) {
 function findAnchorCalibration(page, chars) {
   if (!page?.anchors?.length) return null
 
-  const firstAnchor = page.anchors[0]
+  const firstAnchor = page.anchors.find(anchor => anchor.kind === "code") || page.anchors[0]
   const sampleCount = Math.min(chars.length, 24)
   const baseGeometry = getGridGeometry(
     page.pageWidth,
@@ -549,8 +570,12 @@ function buildAutoPageProfiles(pages, chars) {
   return pages.map(page => {
     const anchorAuto = findAnchorCalibration(page, chars)
     const gridAuto = findAutoCalibration(page, chars)
-    const picked =
-      anchorAuto && anchorAuto.score >= gridAuto.score - 10 ? anchorAuto : gridAuto
+    const strongCodeAnchors = (page.codeAnchorCount || 0) >= MIN_TRUSTED_INDEX_TARGETS
+    const picked = strongCodeAnchors
+      ? anchorAuto || gridAuto
+      : anchorAuto && anchorAuto.score >= gridAuto.score - 10
+        ? anchorAuto
+        : gridAuto
 
     return {
       ...page,
@@ -598,6 +623,99 @@ function Adjuster({ label, value, min, max, step, onChange }) {
   )
 }
 
+function GridDebugOverlay({ pageRef, pageVersion, chars, calibration }) {
+  const containerRef = useRef(null)
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const store = pageRef.current
+    if (!store?.pages?.length || chars.length === 0) return
+
+    // Clear previous renders
+    while (container.firstChild) container.removeChild(container.firstChild)
+
+    const DISPLAY_W = 320
+
+    let cursor = 0
+
+    for (const page of store.pages) {
+      if (cursor >= chars.length) break
+      const { ctx: srcCtx, pageWidth, pageHeight } = page
+      if (!srcCtx) continue
+
+      const remaining = chars.length - cursor
+      // Same calibration as extraction — TEMPLATE_CALIBRATION + manual slider
+      const pageGeomCalib = {
+        offsetX: TEMPLATE_CALIBRATION.offsetX + calibration.offsetX,
+        offsetY: TEMPLATE_CALIBRATION.offsetY + calibration.offsetY,
+        cellAdjust: TEMPLATE_CALIBRATION.cellAdjust + calibration.cellAdjust,
+        gapAdjust: TEMPLATE_CALIBRATION.gapAdjust + calibration.gapAdjust,
+      }
+      // Step 1: compute pageMaxCells exactly like analysisResult does
+      const geomForCap = getGridGeometry(pageWidth, pageHeight, Math.min(remaining, 24), pageGeomCalib)
+      let pageMaxCells = getPageCapacity(pageHeight, geomForCap.startY, geomForCap.cellSize, geomForCap.gap)
+      if ((page.anchorCapacity || 0) >= MIN_TRUSTED_INDEX_TARGETS) {
+        pageMaxCells = Math.min(pageMaxCells, page.anchorCapacity)
+      }
+      pageMaxCells = Math.min(pageMaxCells, remaining)
+      if (pageMaxCells <= 0) continue
+
+      // Step 2: geometry for drawing — use pageMaxCells like extractGlyphsFromCanvas
+      const { gap, cellSize, startX, startY } = getGridGeometry(pageWidth, pageHeight, pageMaxCells, pageGeomCalib)
+
+      const scaleF = DISPLAY_W / pageWidth
+      const canvas = document.createElement("canvas")
+      canvas.width = DISPLAY_W
+      canvas.height = Math.round(pageHeight * scaleF)
+
+      const ctx = canvas.getContext("2d")
+      ctx.save(); ctx.scale(scaleF, scaleF); ctx.drawImage(srcCtx.canvas, 0, 0); ctx.restore()
+      ctx.save(); ctx.scale(scaleF, scaleF)
+      for (let i = 0; i < pageMaxCells; i++) {
+        const row = Math.floor(i / GRID_COLS)
+        const col = i % GRID_COLS
+        const cx = Math.round(startX + col * (cellSize + gap))
+        const cy = Math.round(startY + row * (cellSize + gap))
+        const inset = Math.round(cellSize * GRID_CONFIG.insetRatio)
+        ctx.strokeStyle = "rgba(0,200,80,0.9)"; ctx.lineWidth = 1.5 / scaleF
+        ctx.strokeRect(cx, cy, cellSize, cellSize)
+        ctx.strokeStyle = "rgba(30,100,255,0.7)"; ctx.lineWidth = 1 / scaleF
+        ctx.strokeRect(cx + inset, cy + inset, cellSize - inset * 2, cellSize - inset * 2)
+        ctx.fillStyle = "rgba(0,0,0,0.75)"; ctx.font = `bold ${Math.round(cellSize * 0.16)}px sans-serif`
+        ctx.fillText(cursor + i + 1, cx + 4, cy + cellSize * 0.21)
+      }
+      ctx.restore()
+
+      const label = document.createElement("p")
+      label.textContent = `หน้า ${page.pageNumber}  (ช่อง ${cursor + 1}–${cursor + pageMaxCells})`
+      label.style.cssText = "font-size:10px;color:#888;text-align:center;margin:0 0 4px;font-family:sans-serif"
+
+      const wrapper = document.createElement("div")
+      wrapper.style.cssText = "display:flex;flex-direction:column;flex-shrink:0"
+      canvas.style.cssText = "border-radius:8px;border:1px solid #ddd;display:block;width:100%"
+      wrapper.appendChild(label)
+      wrapper.appendChild(canvas)
+      container.appendChild(wrapper)
+
+      cursor += pageMaxCells
+    }
+  }, [pageRef, pageVersion, chars, calibration])
+
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        display: "flex",
+        gap: 12,
+        overflowX: "auto",
+        paddingBottom: 4,
+        alignItems: "flex-start",
+      }}
+    />
+  )
+}
+
 export default function Step3({ selected, pdfFile, templateChars = [], onGlyphsUpdate = () => {} }) {
   const fallbackChars = useMemo(
     () => (templateChars.length > 0 ? templateChars : [...selected]),
@@ -619,6 +737,7 @@ export default function Step3({ selected, pdfFile, templateChars = [], onGlyphsU
   const [calibration, setCalibration] = useState(DEFAULT_CALIBRATION)
   const [autoAligning, setAutoAligning] = useState(false)
   const [autoInfo, setAutoInfo] = useState("")
+  const [showDebug, setShowDebug] = useState(false)
 
   const runAutoAlign = () => {
     const store = pageRef.current
@@ -704,6 +823,7 @@ export default function Step3({ selected, pdfFile, templateChars = [], onGlyphsU
               anchorStartIndex: anchorInfo.startIndex,
               contiguousCount: anchorInfo.contiguousCount,
               hasCodeAnchors: anchorInfo.hasCodeAnchors,
+              codeAnchorCount: anchorInfo.codeAnchorCount || 0,
             })
           }
 
@@ -779,19 +899,16 @@ export default function Step3({ selected, pdfFile, templateChars = [], onGlyphsU
     for (const page of source.pages) {
       if (cursor >= chars.length) break
 
-      const baseCalibration = page.autoCalibration || DEFAULT_CALIBRATION
+      // TEMPLATE_CALIBRATION is measured from page 1; apply it uniformly to all pages.
       const pageCalibration = {
-        offsetX: baseCalibration.offsetX + calibration.offsetX,
-        offsetY: baseCalibration.offsetY + calibration.offsetY,
-        cellAdjust: baseCalibration.cellAdjust + calibration.cellAdjust,
-        gapAdjust: baseCalibration.gapAdjust + calibration.gapAdjust,
+        offsetX: TEMPLATE_CALIBRATION.offsetX + calibration.offsetX,
+        offsetY: TEMPLATE_CALIBRATION.offsetY + calibration.offsetY,
+        cellAdjust: TEMPLATE_CALIBRATION.cellAdjust + calibration.cellAdjust,
+        gapAdjust: TEMPLATE_CALIBRATION.gapAdjust + calibration.gapAdjust,
       }
 
-      const anchoredStart =
-        Number.isFinite(page.anchorStartIndex) && page.anchorStartIndex != null
-          ? Math.max(0, page.anchorStartIndex - 1)
-          : null
-      const startIndex = anchoredStart == null ? cursor : Math.max(cursor, anchoredStart)
+      // Keep slot mapping deterministic across pages (1..N) to avoid noisy header/footer anchors shifting indices.
+      const startIndex = cursor
 
       const geometry = getGridGeometry(
         page.pageWidth,
@@ -805,13 +922,14 @@ export default function Step3({ selected, pdfFile, templateChars = [], onGlyphsU
         geometry.cellSize,
         geometry.gap
       )
-      if (page.anchorCapacity > 0) {
+      if (page.anchorCapacity >= MIN_TRUSTED_INDEX_TARGETS) {
         pageMaxCells = Math.min(pageMaxCells, page.anchorCapacity)
       }
+      pageMaxCells = Math.min(pageMaxCells, chars.length - startIndex)
       if (pageMaxCells <= 0) continue
 
       const pageChars = chars.slice(startIndex, startIndex + pageMaxCells)
-      if (pageChars.length === 0) break
+      if (pageChars.length === 0) continue
 
       const pageGlyphs = extractGlyphsFromCanvas({
         ctx: page.ctx,
@@ -1052,9 +1170,21 @@ export default function Step3({ selected, pdfFile, templateChars = [], onGlyphsU
           <Btn onClick={() => setCalibration(DEFAULT_CALIBRATION)} variant="ghost" size="sm">
             รีเซ็ตกริด
           </Btn>
+          <Btn onClick={() => setShowDebug(v => !v)} variant="ghost" size="sm">
+            {showDebug ? "ซ่อน Overlay" : "ดู Grid Overlay"}
+          </Btn>
           </div>
         </div>
       </div>
+
+      {showDebug && (
+        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14, marginBottom: 14 }}>
+          <p style={{ fontSize: 11, color: C.inkLt, marginBottom: 8 }}>
+            🟩 outer cell &nbsp;|&nbsp; 🟦 crop zone — ปรับ slider แล้ว overlay อัปเดตตาม
+          </p>
+          <GridDebugOverlay pageRef={pageRef} pageVersion={pageVersion} chars={chars} calibration={calibration} />
+        </div>
+      )}
 
       <div
         style={{

@@ -99,21 +99,58 @@ export default function App() {
     if (chars.length === 0) return
     setTemplateChars(chars)
 
-    const cells = chars
-      .map(
-        (ch, index) => `
-          <div class="cell">
-            <span class="cell-label">${escapeHtml(ch)}</span>
-            <span class="cell-anchor">${toCellCode(index)}</span>
-            <div class="guide guide-top"></div>
-            <div class="guide guide-mid"></div>
-            <div class="guide guide-base"></div>
-          </div>
-        `
-      )
-      .join("")
-
+    const COLUMNS_PER_ROW = 6
+    const ROWS_PER_PAGE = 6
+    const CELLS_PER_PAGE = COLUMNS_PER_ROW * ROWS_PER_PAGE
+    const pageCount = Math.ceil(chars.length / CELLS_PER_PAGE)
     const now = new Date().toLocaleString("th-TH")
+
+    const makeCell = (ch, index) => `
+      <div class="cell">
+        <span class="cell-label">${escapeHtml(ch)}</span>
+        <span class="cell-anchor">${toCellCode(index)}</span>
+        <div class="guide guide-top"></div>
+        <div class="guide guide-mid"></div>
+        <div class="guide guide-base"></div>
+      </div>
+    `
+
+    const sheets = Array.from({ length: pageCount }, (_, pageIndex) => {
+      const pageStart = pageIndex * CELLS_PER_PAGE
+      const pageChars = chars.slice(pageStart, pageStart + CELLS_PER_PAGE)
+      const rows = []
+
+      for (let rowStart = 0; rowStart < pageChars.length; rowStart += COLUMNS_PER_ROW) {
+        const rowChars = pageChars.slice(rowStart, rowStart + COLUMNS_PER_ROW)
+        const rowAbsoluteStart = pageStart + rowStart
+        const cells = rowChars.map((ch, idx) => makeCell(ch, rowAbsoluteStart + idx)).join("")
+        rows.push(`<div class="row">${cells}</div>`)
+      }
+
+      const header =
+        pageIndex === 0
+          ? `
+            <div class="header">
+              <h1 class="title">Handwriting Generator Template</h1>
+              <p class="meta">Total glyphs: ${chars.length} • Generated: ${escapeHtml(now)}</p>
+              <p class="meta">Cell code format: HGxxx (ใช้ยึดตำแหน่งตอนอัปโหลดกลับใน Step 3)</p>
+            </div>
+          `
+          : `
+            <div class="header header-compact">
+              <p class="meta">Continue template • Page ${pageIndex + 1}/${pageCount}</p>
+            </div>
+          `
+
+      return `
+        <section class="sheet">
+          ${header}
+          <div class="grid">${rows.join("")}</div>
+          <p class="footer">Practice sheet • Trace over the dotted shape • ${pageIndex + 1}/${pageCount}</p>
+        </section>
+      `
+    }).join("")
+
     const html = `
       <!doctype html>
       <html lang="th">
@@ -134,20 +171,33 @@ export default function App() {
               padding: 4mm 0 5mm;
               border-bottom: 1px solid #C5D5E6;
             }
+            .header-compact {
+              margin-bottom: 4mm;
+              padding: 2mm 0 3mm;
+            }
             .title { font-size: 18px; font-weight: 700; margin: 0 0 3px; }
             .meta { font-size: 11px; color: #4B6480; margin: 0; }
             .grid {
-              display: grid;
-              grid-template-columns: repeat(6, 1fr);
+              display: flex;
+              flex-direction: column;
               gap: 7px;
+            }
+            .row {
+              display: grid;
+              grid-template-columns: repeat(6, minmax(0, 1fr));
+              gap: 7px;
+              break-inside: avoid;
+              page-break-inside: avoid;
             }
             .cell {
               position: relative;
               border: 1.1px solid #8EA9C7;
               border-radius: 6px;
               background: #FFFFFF;
-              aspect-ratio: 1 / 1;
+              height: 28.5mm;
               overflow: hidden;
+              break-inside: avoid;
+              page-break-inside: avoid;
             }
             .cell-label {
               position: absolute;
@@ -161,12 +211,15 @@ export default function App() {
             }
             .cell-anchor {
               position: absolute;
-              top: 1px;
-              left: 1px;
-              font-size: 1px;
-              opacity: 0;
-              color: transparent;
-              z-index: 0;
+              top: 2px;
+              right: 4px;
+              font-size: 6px;
+              color: #FFFFFF;
+              opacity: 1;
+              z-index: 1;
+              font-family: "DM Sans", Arial, sans-serif;
+              letter-spacing: 0.02em;
+              pointer-events: none;
               user-select: none;
             }
             .guide {
@@ -186,17 +239,31 @@ export default function App() {
               color: #5C7694;
               font-family: "DM Sans", Arial, sans-serif;
             }
-            @media print { .no-print { display: none; } }
+            .sheet {
+              break-inside: avoid;
+              page-break-inside: avoid;
+              break-after: page;
+              page-break-after: always;
+            }
+            .sheet:last-of-type {
+              break-after: auto;
+              page-break-after: auto;
+            }
+            @media print {
+              .no-print { display: none; }
+              .sheet {
+                break-inside: avoid;
+                page-break-inside: avoid;
+              }
+              .row {
+                break-inside: avoid;
+                page-break-inside: avoid;
+              }
+            }
           </style>
         </head>
         <body>
-          <div class="header">
-            <h1 class="title">Handwriting Generator Template</h1>
-            <p class="meta">Total glyphs: ${chars.length} • Generated: ${escapeHtml(now)}</p>
-            <p class="meta">Cell code format: HGxxx (ใช้ยึดตำแหน่งตอนอัปโหลดกลับใน Step 3)</p>
-          </div>
-          <div class="grid">${cells}</div>
-          <p class="footer">Practice sheet • Trace over the dotted shape</p>
+          ${sheets}
           <script>
             window.addEventListener("load", () => {
               const runPrint = () => setTimeout(() => window.print(), 220);

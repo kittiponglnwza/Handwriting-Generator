@@ -30,6 +30,40 @@ const THAI_VOWELS = [
 const DIGITS = "0123456789".split("")
 const ENG_UPPER = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("")
 const ENG_LOWER = "abcdefghijklmnopqrstuvwxyz".split("")
+const SPECIAL_CHARS = [
+  "!",
+  "@",
+  "#",
+  "$",
+  "%",
+  "^",
+  "&",
+  "*",
+  "(",
+  ")",
+  "-",
+  "_",
+  "=",
+  "+",
+  "[",
+  "]",
+  "{",
+  "}",
+  ";",
+  ":",
+  "'",
+  '"',
+  ",",
+  ".",
+  "<",
+  ">",
+  "/",
+  "?",
+  "\\",
+  "|",
+  "`",
+  "~",
+]
 
 const GROUPS = [
   { label: "พยัญชนะไทย", chars: THAI_CONSONANTS },
@@ -37,6 +71,7 @@ const GROUPS = [
   { label: "ตัวเลข", chars: DIGITS },
   { label: "English A-Z", chars: ENG_UPPER },
   { label: "English a-z", chars: ENG_LOWER },
+  { label: "อักขระพิเศษ", chars: SPECIAL_CHARS },
 ]
 
 const ALL_CHARS = GROUPS.flatMap(group => group.chars)

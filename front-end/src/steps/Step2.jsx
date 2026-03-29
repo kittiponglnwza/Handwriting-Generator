@@ -11,6 +11,7 @@ GlobalWorkerOptions.workerSrc = pdfWorker
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
 const TEMPLATE_CODE_RE = /^HG(\d{1,4})$/i
 const TEMPLATE_INDEX_RE = /^(\d{1,4})$/
+const MIN_TRUSTED_INDEX_TARGETS = 6
 
 function formatFileSize(bytes) {
   if (!bytes && bytes !== 0) return "-"
@@ -40,11 +41,17 @@ function validatePdf(file) {
   return ""
 }
 
+function getContiguousCount(indices) {
+  if (indices.size === 0) return 0
+  let contiguous = 0
+  while (indices.has(contiguous + 1)) contiguous += 1
+  return contiguous
+}
+
 function deriveCountFromSet(indices) {
   if (indices.size === 0) return 0
 
-  let contiguous = 0
-  while (indices.has(contiguous + 1)) contiguous += 1
+  const contiguous = getContiguousCount(indices)
   if (contiguous > 0) return contiguous
 
   return indices.size
@@ -65,8 +72,10 @@ async function readPdfTargetInfo(file) {
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
       const page = await pdf.getPage(pageNumber)
       const content = await page.getTextContent()
+      const items = content.items || []
 
-      for (const item of content.items || []) {
+      for (let i = 0; i < items.length; i += 1) {
+        const item = items[i]
         const raw = String(item?.str || "").trim()
         if (!raw) continue
 
@@ -82,6 +91,12 @@ async function readPdfTargetInfo(file) {
         const indexMatch = raw.match(TEMPLATE_INDEX_RE)
         if (indexMatch) {
           const value = Number(indexMatch[1])
+          const prevRaw = String(items[i - 1]?.str || "").trim()
+          const hasCodePrefix = /^HG$/i.test(prevRaw)
+          if (hasCodePrefix && Number.isFinite(value) && value >= 1 && value <= 9999) {
+            codeIndices.add(value)
+            continue
+          }
           if (Number.isFinite(value) && value >= 1 && value <= 9999) {
             numericIndices.add(value)
           }
@@ -89,9 +104,23 @@ async function readPdfTargetInfo(file) {
       }
     }
 
-    const sourceSet = codeIndices.size > 0 ? codeIndices : numericIndices
-    const source = codeIndices.size > 0 ? "code" : numericIndices.size > 0 ? "index" : "none"
-    const count = deriveCountFromSet(sourceSet)
+    let source = "none"
+    let sourceSet = new Set()
+    let count = 0
+
+    if (codeIndices.size > 0) {
+      source = "code"
+      sourceSet = codeIndices
+      count = deriveCountFromSet(codeIndices)
+    } else {
+      const contiguousIndexCount = getContiguousCount(numericIndices)
+      if (contiguousIndexCount >= MIN_TRUSTED_INDEX_TARGETS) {
+        source = "index"
+        sourceSet = numericIndices
+        count = contiguousIndexCount
+      }
+    }
+
     const sorted = [...sourceSet].sort((a, b) => a - b)
     const sample = sorted.slice(0, 8)
 
