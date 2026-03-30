@@ -58,8 +58,9 @@ export function deformPath(svgPath, version) {
   const MIN = -0.5
   const MAX = 100.5
 
+  // human-like: เชื่อมให้แรงขึ้น (ลดโอกาสเห็นเส้นขาด)
   if (version === 1) {
-    return bridgeNearbySegments(svgPath, 0.85)
+    return bridgeNearbySegments(svgPath, 1.25)
   }
 
   const deformed = svgPath.replace(/([ML])\s+([-]?[\d.]+)\s+([-]?[\d.]+)/g, (match, cmd, xStr, yStr) => {
@@ -92,7 +93,7 @@ export function deformPath(svgPath, version) {
     }
   })
 
-  return bridgeNearbySegments(deformed, version === 2 ? 1.05 : 1.15)
+  return bridgeNearbySegments(deformed, version === 2 ? 1.4 : 1.55)
 }
 
 /** Each source glyph → 3 entries (version 1, 2, 3) with deformed svgPath. */

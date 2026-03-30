@@ -101,11 +101,15 @@ function GlyphSlot({
     glyph.svgPath.trim() !== "M 0 0"
 
   const pngInk = glyph ? normalizePngDataUrl(glyph.previewInk || "") : ""
-  const pngFallback = glyph ? normalizePngDataUrl(glyph.preview || "") : ""
-  const pngSrc = pngInk || pngFallback
-  const usePngFirst = pngSrc.length > 0
+  // ใช้เฉพาะ ink ที่พื้นหลังโปร่งใสเท่านั้น เพื่อตัด "กล่องพื้นหลัง" ออก
+  const usePngInk = pngInk.length > 0
 
   const sw = penStrokeWidth(fontSize, strokeWMul)
+  // Overlap เพื่อให้คำ/ตัวทับกันได้แบบงานพิมพ์
+  const overlapPx = Math.min(
+    Math.max(0, Math.round(slotW * OVERLAP_FACTOR)),
+    Math.max(0, slotW - 1)
+  )
 
   const outerStyle = {
     display: "inline-block",
@@ -114,7 +118,8 @@ function GlyphSlot({
     verticalAlign: "bottom",
     flexShrink: 0,
     margin: 0,
-    marginRight: "-0.18em",
+    // ทำให้ตัวติดกันชิดขึ้น และยอมให้ "ทับ" ได้เล็กน้อยเหมือนคนพิมพ์
+    marginRight: `-${overlapPx}px`,
     padding: 0,
     overflow: "visible",
     background: hlColor || "transparent",
@@ -133,21 +138,7 @@ function GlyphSlot({
   return (
     <span style={outerStyle}>
       <span style={innerStyle}>
-        {usePngFirst ? (
-          <img
-            src={pngSrc}
-            alt={ch}
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "contain",
-              objectPosition: "left bottom",
-              display: "block",
-              imageRendering: "auto",
-              mixBlendMode: "multiply",
-            }}
-          />
-        ) : hasSvg ? (
+        {hasSvg ? (
           <svg
             viewBox={glyph.viewBox || viewBox || "0 0 100 100"}
             style={{
@@ -169,6 +160,20 @@ function GlyphSlot({
               paintOrder="stroke fill"
             />
           </svg>
+        ) : usePngInk ? (
+          <img
+            src={pngInk}
+            alt={ch}
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "contain",
+              objectPosition: "left bottom",
+              display: "block",
+              imageRendering: "auto",
+              mixBlendMode: "multiply",
+            }}
+          />
         ) : (
           <span
             style={{
@@ -206,9 +211,15 @@ const W = {
 }
 
 /** ช่องตัวอักษรเทียบ fontSize — ค่าเดิม 0.72/1.3 ทำให้ตัวห่างเกินจริง */
+// คืนขนาดตัวอักษรให้ใหญ่ขึ้น (เดิมลดไปเพื่อให้ชิด)
 const GLYPH_SLOT_W_RATIO = 0.3
 const GLYPH_SLOT_H_RATIO = 0.98
-const GLYPH_SPACE_W_RATIO = 0.11
+// ลดช่องว่างระหว่างตัวให้ชิดขึ้น (คนพิมพ์ไม่เว้นเท่ากัน)
+const GLYPH_SPACE_W_RATIO = 0.075
+
+// Overlap (ทับ) ระหว่างตัว เพื่อให้ “เป็นคำ” อ่านง่าย
+// ยิ่งค่านี้สูง ยิ่งชิด/ยิ่งทับมาก (แต่ไม่กระทบขนาด glyph โดยตรง)
+const OVERLAP_FACTOR = 0.38
 
 function glyphMetrics(fontSize) {
   const fs = Number(fontSize) || 32
@@ -339,6 +350,9 @@ export default function Step5({
   const [previewZoom, setPreviewZoom] = useState(1)
   // ใช้ transform scale กับฝั่ง preview เพื่อลด layout shift
 
+  // Export shift (แกน X) - ใช้ปรับตำแหน่งตอนส่งออกโดยไม่กระทบ preview layout มาก
+  const [outputOffsetX, setOutputOffsetX] = useState(0)
+
   const TEXT_COLORS = ["#2C2416", "#1a3a5c", "#2e6b3e", "#8b3a2a", "#5c3d7a", "#605e5c"]
   const HL_COLORS = ["", "#fff9c4", "#c8f7c5", "#d4e6ff", "#ffe0cc", "#f5d0f5"]
 
@@ -434,7 +448,7 @@ export default function Step5({
       const skewX = t0.skewX.toFixed(2)
       const topPx = (t0.shiftYWord ?? t0.shiftY ?? 0).toFixed(2)
 
-      const charPieces = token.chars.map(ct => {
+      const charPieces = token.chars.map((ct, ci) => {
         const v = ct.variant
         const hl = hlColor ? `background:${hlColor};` : ""
         const g = ct.glyph
@@ -445,8 +459,7 @@ export default function Step5({
           g.svgPath.trim() !== "M 0 0"
 
         const pngInk = g ? normalizePngDataUrl(g.previewInk || "") : ""
-        const pngFb = g ? normalizePngDataUrl(g.preview || "") : ""
-        const pngUse = pngInk || pngFb
+        const pngUse = pngInk
         const sw = penStrokeWidth(fontSize, v.strokeWMul ?? 1).toFixed(2)
         const op = (v.opacity ?? 1).toFixed(3)
         const tx = (v.shiftX ?? 0).toFixed(2)
@@ -454,25 +467,30 @@ export default function Step5({
         const mr = (v.microRotate ?? 0).toFixed(2)
 
         let inner
-        if (pngUse) {
-          inner =
-            `<img src="${pngUse}" alt="${escapeHtml(ct.ch)}" ` +
-            `style="width:100%;height:100%;object-fit:contain;object-position:left bottom;display:block;mix-blend-mode:multiply" />`
-        } else if (hasSvg) {
+        if (hasSvg) {
           const vb = g.viewBox || "0 0 100 100"
           inner =
             `<svg viewBox="${vb}" style="width:100%;height:100%;display:block;shape-rendering:geometricPrecision;overflow:visible" aria-label="${escapeHtml(ct.ch)}">` +
             `<path d="${escapeHtml(g.svgPath)}" fill="none" stroke="${textColor}" ` +
             `stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" paint-order="stroke fill"/></svg>`
+        } else if (pngUse) {
+          inner =
+            `<img src="${pngUse}" alt="${escapeHtml(ct.ch)}" ` +
+            `style="width:100%;height:100%;object-fit:contain;object-position:left bottom;display:block;mix-blend-mode:multiply" />`
         } else {
           inner = escapeHtml(ct.ch)
         }
 
+        // ใช้ slotW จริงเพื่อไม่ให้ตัวอักษรถูกบีบจนเล็ก
+        const overlapPx = Math.min(Math.max(0, Math.round(slotW * OVERLAP_FACTOR)), Math.max(0, slotW - 1))
+
+        const marginLeftPx = ci === 0 ? 0 : -overlapPx
+
         return (
           `<span style="display:inline-block;transform:translate(${tx}px,${ty}px) rotate(${mr}deg);` +
-            `transform-origin:center bottom;vertical-align:bottom">` +
+            `transform-origin:center bottom;vertical-align:bottom;margin-right:-${overlapPx}px;margin-left:${marginLeftPx}px">` +
             `<span style="display:inline-block;width:${slotW}px;height:${slotH}px;` +
-            `vertical-align:bottom;flex-shrink:0;margin-right:-0.18em;${hl}">` +
+            `vertical-align:bottom;flex-shrink:0;margin-right:0;${hl}">` +
             `<span style="display:inline-flex;align-items:flex-end;justify-content:flex-start;` +
             `width:100%;height:100%;opacity:${op};color:${textColor};overflow:visible">` +
             `${inner}</span></span></span>`
@@ -534,7 +552,7 @@ body {
 }
 </style></head>
 <body>
-  <div class="paper">${inner}</div>
+  <div class="paper"><div style="transform: translateX(${outputOffsetX}px); transform-origin: top left;">${inner}</div></div>
 </body></html>`
 
     const iframe = document.createElement("iframe")
@@ -579,12 +597,16 @@ body {
     window.setTimeout(runPrint, 200)
   }, [buildDocumentHtmlFragment, marginPx, lineHeight, fontSize, alignment, textColor, paraSpacing])
 
-  const renderChar = ct => {
+  const renderChar = (ct, idx) => {
     const t = ct.variant
     const { slotW, slotH } = glyphMetrics(fontSize)
     const tx = t.shiftX ?? 0
     const ty = t.shiftYMicro ?? 0
     const mr = t.microRotate ?? 0
+    const overlapPx = Math.min(
+      Math.max(0, Math.round(slotW * OVERLAP_FACTOR)),
+      Math.max(0, slotW - 1)
+    )
 
     return (
       <span
@@ -595,6 +617,7 @@ body {
           transform: `translate(${tx}px, ${ty}px) rotate(${mr}deg)`,
           transformOrigin: "center bottom",
           verticalAlign: "bottom",
+          marginLeft: idx === 0 ? 0 : `-${overlapPx}px`,
         }}
       >
         <GlyphSlot
@@ -685,7 +708,7 @@ body {
             top: `${(t.shiftYWord ?? t.shiftY ?? 0).toFixed(2)}px`,
           }}
         >
-          {token.chars.map(ct => renderChar(ct))}
+          {token.chars.map((ct, idx) => renderChar(ct, idx))}
         </span>
       )
     }
@@ -865,6 +888,20 @@ body {
             >
               Export PDF
             </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 6 }}>
+              <span style={{ fontSize: 10, color: W.tabInkMuted, whiteSpace: "nowrap" }}>Output X</span>
+              <input
+                type="range"
+                min={-120}
+                max={120}
+                value={outputOffsetX}
+                onChange={e => setOutputOffsetX(+e.target.value)}
+                style={{ width: 110, accentColor: W.accent }}
+              />
+              <span style={{ fontSize: 10, color: W.tabInkMuted, minWidth: 34, textAlign: "right" }}>
+                {outputOffsetX}
+              </span>
+            </div>
             <RibbonBtn active={showVersionDebug} onClick={() => setShowVersionDebug(v => !v)} title="แสดง v1/v2/v3">
               v?
             </RibbonBtn>
@@ -1091,6 +1128,8 @@ body {
             >
               <div
                 style={{
+                  transform: `translateX(${outputOffsetX}px)`,
+                  transformOrigin: "top left",
                   fontSize,
                   lineHeight,
                   color: textColor,
