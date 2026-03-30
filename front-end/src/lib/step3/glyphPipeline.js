@@ -38,9 +38,15 @@ export function classifyGlyph(imageData, width, height) {
   return { status: "ok", inkRatio, edgeRatio }
 }
 
+/** พื้นหลังต้องโปร่งใส — ถ้าใช้ขาวทึบ จะเห็นกล่องรอบตัวอักษรเมื่อพิมพ์/PDF ไม่ตรงโทนขาวกับกระดาษ */
 export function buildInkOnlyImageData(imageData, width, height) {
   const cleaned = new ImageData(new Uint8ClampedArray(imageData.data), width, height)
   const { data } = cleaned
+
+  const clear = i => {
+    data[i] = data[i + 1] = data[i + 2] = 0
+    data[i + 3] = 0
+  }
 
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i],
@@ -49,8 +55,7 @@ export function buildInkOnlyImageData(imageData, width, height) {
       a = data[i + 3]
 
     if (a < 30) {
-      data[i] = data[i + 1] = data[i + 2] = 255
-      data[i + 3] = 255
+      clear(i)
       continue
     }
 
@@ -59,14 +64,12 @@ export function buildInkOnlyImageData(imageData, width, height) {
     const blueDom = b - Math.max(r, g)
     const isBlueFamily = blueDom > 5 && b > 100
     if (isBlueFamily) {
-      data[i] = data[i + 1] = data[i + 2] = 255
-      data[i + 3] = 255
+      clear(i)
       continue
     }
 
     if (lum > 180) {
-      data[i] = data[i + 1] = data[i + 2] = 255
-      data[i + 3] = 255
+      clear(i)
       continue
     }
 

@@ -38,18 +38,28 @@ function buildWordStyle(wordRng, weight = "normal") {
   }
 }
 
-function buildCharVariant(_charRng, wordStyle, weight = "normal") {
+function buildCharVariant(charRng, wordStyle, weight = "normal") {
   const widthScale = weight === "bold" ? 0.6 : weight === "light" ? 0.52 : 0.56
   return {
     rotate: wordStyle.rotate,
     skewX: wordStyle.skewX,
+    shiftYWord: wordStyle.shiftY,
     scaleX: 1.0,
     scaleY: wordStyle.scaleY,
-    shiftY: wordStyle.shiftY,
+    shiftX: lerp(-1.35, 1.35, charRng()),
+    shiftYMicro: lerp(-1.1, 1.1, charRng()),
+    microRotate: lerp(-0.55, 0.55, charRng()),
+    opacity: wordStyle.opacity * lerp(0.93, 1, charRng()),
+    strokeWMul: lerp(0.88, 1.06, charRng()),
     widthScale,
     kerning: 0,
-    opacity: wordStyle.opacity,
   }
+}
+
+/** ความหนาเส้นปากกาเทียบ fontSize — พิมพ์/จอใช้สูตรเดียวกัน */
+function penStrokeWidth(fontSize, mul = 1) {
+  const fs = Number(fontSize) || 32
+  return Math.max(1.2, Math.min(3.5, fs * 0.064 * mul))
 }
 
 function escapeHtml(s) {
@@ -72,14 +82,30 @@ function normalizePngDataUrl(dataUrl) {
   }
 }
 
-function GlyphSlot({ glyph, ch, slotW, slotH, opacity, textColor, hlColor, viewBox }) {
+function GlyphSlot({
+  glyph,
+  ch,
+  slotW,
+  slotH,
+  opacity,
+  textColor,
+  hlColor,
+  viewBox,
+  fontSize,
+  strokeWMul = 1,
+}) {
   const hasSvg =
     glyph &&
     typeof glyph.svgPath === "string" &&
     glyph.svgPath.trim() !== "" &&
     glyph.svgPath.trim() !== "M 0 0"
 
-  const pngSrc = glyph ? normalizePngDataUrl(glyph.previewInk || glyph.preview || "") : ""
+  const pngInk = glyph ? normalizePngDataUrl(glyph.previewInk || "") : ""
+  const pngFallback = glyph ? normalizePngDataUrl(glyph.preview || "") : ""
+  const pngSrc = pngInk || pngFallback
+  const usePngFirst = pngSrc.length > 0
+
+  const sw = penStrokeWidth(fontSize, strokeWMul)
 
   const outerStyle = {
     display: "inline-block",
@@ -89,7 +115,7 @@ function GlyphSlot({ glyph, ch, slotW, slotH, opacity, textColor, hlColor, viewB
     flexShrink: 0,
     margin: 0,
     padding: 0,
-    overflow: "visible",
+    overflow: "hidden",
     background: hlColor || "transparent",
   }
 
@@ -106,36 +132,61 @@ function GlyphSlot({ glyph, ch, slotW, slotH, opacity, textColor, hlColor, viewB
   return (
     <span style={outerStyle}>
       <span style={innerStyle}>
-        {hasSvg ? (
+        {usePngFirst ? (
+          <img
+            src={pngSrc}
+            alt={ch}
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "contain",
+              objectPosition: "center bottom",
+              display: "block",
+              imageRendering: "auto",
+              mixBlendMode: "multiply",
+            }}
+          />
+        ) : hasSvg ? (
           <svg
             viewBox={glyph.viewBox || viewBox || "0 0 100 100"}
-            style={{ width: "100%", height: "100%", overflow: "visible", display: "block" }}
+            style={{
+              width: "100%",
+              height: "100%",
+              overflow: "visible",
+              display: "block",
+              shapeRendering: "geometricPrecision",
+            }}
             aria-label={ch}
           >
             <path
               d={glyph.svgPath}
               fill="none"
               stroke={textColor || "#2C2416"}
-              strokeWidth="3"
+              strokeWidth={sw}
               strokeLinecap="round"
               strokeLinejoin="round"
+              paintOrder="stroke fill"
             />
           </svg>
-        ) : pngSrc ? (
-          <img
-            src={pngSrc}
-            alt={ch}
-            style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
-          />
         ) : (
-          ch
+          <span
+            style={{
+              fontFamily: "'TH Sarabun New','Noto Sans Thai',Tahoma,sans-serif",
+              fontSize: Math.round(fontSize * 0.92),
+              fontWeight: 500,
+              lineHeight: 1,
+              color: textColor,
+            }}
+          >
+            {ch}
+          </span>
         )}
       </span>
     </span>
   )
 }
 
-// ─── Microsoft Word–inspired chrome ───────────────────────────────────────────
+// ─── Microsoft Word–inspired chrome (ribbon light + dark “paper well”) ───────
 const W = {
   ribbonBg: "#f3f2f1",
   ribbonBorder: "#d2d0ce",
@@ -146,13 +197,30 @@ const W = {
   accent: "#0078d4",
   accentHover: "#106ebe",
   canvas: "#e7e6e6",
+  pageWell: "#2d2c2c",
   page: "#ffffff",
   statusBg: "#f3f2f1",
   groupLabel: "#605e5c",
+  inputCard: "#ffffff",
+}
+
+/** ช่องตัวอักษรเทียบ fontSize — ค่าเดิม 0.72/1.3 ทำให้ตัวห่างเกินจริง */
+const GLYPH_SLOT_W_RATIO = 0.48
+const GLYPH_SLOT_H_RATIO = 1.04
+const GLYPH_SPACE_W_RATIO = 0.16
+
+function glyphMetrics(fontSize) {
+  const fs = Number(fontSize) || 32
+  return {
+    slotW: Math.max(12, Math.round(fs * GLYPH_SLOT_W_RATIO)),
+    slotH: Math.max(20, Math.round(fs * GLYPH_SLOT_H_RATIO)),
+    spaceW: Math.max(3, Math.round(fs * GLYPH_SPACE_W_RATIO)),
+  }
 }
 
 const LINE_PRESETS = [
   { label: "1.0", value: 1.0 },
+  { label: "1.2", value: 1.2 },
   { label: "1.5", value: 1.5 },
   { label: "2.0", value: 2.0 },
 ]
@@ -256,14 +324,13 @@ export default function Step5({
   )
   const [dnaNonce, setDnaNonce] = useState(0)
   const [fontSize, setFontSize] = useState(38)
-  const [lineHeight, setLineHeight] = useState(1.5)
+  const [lineHeight, setLineHeight] = useState(1.25)
   const [alignment, setAlignment] = useState("left")
   const [fontWeight, setFontWeight] = useState("normal")
   const [paraSpacing, setParaSpacing] = useState(8)
   const [textColor, setTextColor] = useState("#2C2416")
   const [hlColor, setHlColor] = useState("")
   const [marginPx, setMarginPx] = useState(48)
-  const [pageWidth] = useState(720)
   const [showVersionDebug, setShowVersionDebug] = useState(false)
 
   const TEXT_COLORS = ["#2C2416", "#1a3a5c", "#2e6b3e", "#8b3a2a", "#5c3d7a", "#605e5c"]
@@ -337,33 +404,32 @@ export default function Step5({
     return list
   }, [text, glyphMap, dnaNonce, fontWeight, documentSeed])
 
-  const exportWord = useCallback(() => {
+  /** Build HTML fragment (preview + print) — words wrap; long strings break inside page width */
+  const buildDocumentHtmlFragment = useCallback(() => {
     const pieces = []
+    const { slotW, slotH, spaceW } = glyphMetrics(fontSize)
 
     for (const token of tokens) {
       if (token.type === "newline") {
-        pieces.push("<br />")
+        pieces.push('<span class="hw-br"></span>')
         continue
       }
       if (token.type === "space") {
-        const spW = Math.round(fontSize * 0.32)
-        const spH = Math.round(fontSize * 1.3)
         pieces.push(
-          `<span style="display:inline-block;width:${spW}px;height:${spH}px;vertical-align:bottom;"></span>`
+          `<span style="display:inline-block;width:${spaceW}px;height:${slotH}px;vertical-align:bottom;flex-shrink:0"></span>`
         )
         continue
       }
       if (token.type !== "word") continue
 
-      const t = token.chars[0]?.variant
-      if (!t) continue
-      const rotate = t.rotate.toFixed(2)
-      const skewX = t.skewX.toFixed(2)
-      const topPx = t.shiftY.toFixed(2)
-      const slotW = Math.round(fontSize * 0.72)
-      const slotH = Math.round(fontSize * 1.3)
+      const t0 = token.chars[0]?.variant
+      if (!t0) continue
+      const rotate = t0.rotate.toFixed(2)
+      const skewX = t0.skewX.toFixed(2)
+      const topPx = (t0.shiftYWord ?? t0.shiftY ?? 0).toFixed(2)
 
       const charPieces = token.chars.map(ct => {
+        const v = ct.variant
         const hl = hlColor ? `background:${hlColor};` : ""
         const g = ct.glyph
         const hasSvg =
@@ -372,67 +438,159 @@ export default function Step5({
           g.svgPath.trim() !== "" &&
           g.svgPath.trim() !== "M 0 0"
 
+        const pngInk = g ? normalizePngDataUrl(g.previewInk || "") : ""
+        const pngFb = g ? normalizePngDataUrl(g.preview || "") : ""
+        const pngUse = pngInk || pngFb
+        const sw = penStrokeWidth(fontSize, v.strokeWMul ?? 1).toFixed(2)
+        const op = (v.opacity ?? 1).toFixed(3)
+        const tx = (v.shiftX ?? 0).toFixed(2)
+        const ty = (v.shiftYMicro ?? 0).toFixed(2)
+        const mr = (v.microRotate ?? 0).toFixed(2)
+
         let inner
-        if (hasSvg) {
+        if (pngUse) {
+          inner =
+            `<img src="${pngUse}" alt="${escapeHtml(ct.ch)}" ` +
+            `style="width:100%;height:100%;object-fit:contain;object-position:center bottom;display:block;mix-blend-mode:multiply" />`
+        } else if (hasSvg) {
           const vb = g.viewBox || "0 0 100 100"
           inner =
-            `<svg viewBox="${vb}" style="width:100%;height:100%;display:block;" aria-label="${escapeHtml(ct.ch)}">` +
+            `<svg viewBox="${vb}" style="width:100%;height:100%;display:block;shape-rendering:geometricPrecision" aria-label="${escapeHtml(ct.ch)}">` +
             `<path d="${escapeHtml(g.svgPath)}" fill="none" stroke="${textColor}" ` +
-            `stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`
-        } else if (ct.preview) {
-          inner =
-            `<img src="${ct.preview}" alt="${escapeHtml(ct.ch)}" ` +
-            `style="width:100%;height:100%;object-fit:contain;display:block;" />`
+            `stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" paint-order="stroke fill"/></svg>`
         } else {
           inner = escapeHtml(ct.ch)
         }
 
         return (
-          `<span style="display:inline-block;width:${slotW}px;height:${slotH}px;` +
-          `vertical-align:bottom;flex-shrink:0;${hl}">` +
-          `<span style="display:inline-flex;align-items:flex-end;justify-content:center;` +
-          `width:100%;height:100%;opacity:${t.opacity.toFixed(2)};color:${textColor};">` +
-          `${inner}</span></span>`
+          `<span style="display:inline-block;transform:translate(${tx}px,${ty}px) rotate(${mr}deg);` +
+            `transform-origin:center bottom;vertical-align:bottom">` +
+            `<span style="display:inline-block;width:${slotW}px;height:${slotH}px;` +
+            `vertical-align:bottom;flex-shrink:0;${hl}">` +
+            `<span style="display:inline-flex;align-items:flex-end;justify-content:center;` +
+            `width:100%;height:100%;opacity:${op};color:${textColor};overflow:hidden">` +
+            `${inner}</span></span></span>`
         )
       })
 
       pieces.push(
-        `<span style="display:inline-flex;align-items:flex-end;white-space:nowrap;` +
-          `vertical-align:bottom;position:relative;top:${topPx}px;` +
-          `transform:rotate(${rotate}deg) skewX(${skewX}deg);transform-origin:left bottom;">` +
+        `<span class="hw-word" style="display:inline-flex;flex-wrap:wrap;align-items:flex-end;gap:0;row-gap:0;` +
+          `column-gap:0;max-width:100%;vertical-align:bottom;position:relative;top:${topPx}px;` +
+          `transform:rotate(${rotate}deg) skewX(${skewX}deg);transform-origin:left bottom;box-sizing:border-box">` +
           charPieces.join("") +
           `</span>`
       )
     }
+    return pieces.join("")
+  }, [tokens, fontSize, textColor, hlColor])
 
+  /**
+   * พิมพ์เป็น PDF — เนื้อหาในหน้า = แค่ข้อความลายมือ (ไม่มีหัวข้อใน HTML)
+   * หมายเหตุ: วันที่/ชื่อเรื่องมุมกระดาษมาจากเบราว์เซอร์ — ปิดที่กล่องพิมพ์: More settings → ปิด “Headers and footers”
+   */
+  const exportPdf = useCallback(() => {
+    const inner = buildDocumentHtmlFragment()
+    // title ว่าง (ZWSP) เพื่อไม่ให้โชว์ชื่อเรื่องยาวใน header ตอนพิมพ์
     const docHtml = `<!doctype html>
-<html><head><meta charset="utf-8"/><title>Handwriting Export</title>
+<html lang="th"><head><meta charset="utf-8"/><title>&#8203;</title>
 <style>
-@page{size:A4;margin:${marginPx}px}
-body{font-family:"TH Sarabun New","Noto Sans Thai",Tahoma,sans-serif;background:#fff;color:${textColor};margin:0;padding:${marginPx}px}
-.paper{min-height:960px;padding:${marginPx}px;line-height:${lineHeight};font-size:${fontSize}px;text-align:${alignment};word-break:keep-all;white-space:normal}
+@page { size: A4; margin: 14mm; }
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: "TH Sarabun New", "Noto Sans Thai", Tahoma, sans-serif;
+  background: #fff;
+  color: ${textColor};
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+  -webkit-font-smoothing: antialiased;
+}
+.paper img {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.paper svg { shape-rendering: geometricPrecision; }
+.paper {
+  width: 100%;
+  max-width: 100%;
+  padding: ${marginPx}px;
+  line-height: ${lineHeight};
+  font-size: ${fontSize}px;
+  text-align: ${alignment};
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  overflow-x: hidden;
+}
+.hw-br { display: block; width: 100%; height: 0; margin: 0 0 ${paraSpacing}px 0; padding: 0; clear: both; }
+@media print {
+  body { background: #fff; }
+  .paper { padding: ${marginPx}px; page-break-inside: auto; }
+}
 </style></head>
-<body><div class="paper">${pieces.join("")}</div></body></html>`
+<body>
+  <div class="paper">${inner}</div>
+</body></html>`
 
-    const blob = new Blob(["\ufeff", docHtml], { type: "application/msword;charset=utf-8" })
-    const url = URL.createObjectURL(blob)
-    const a = Object.assign(document.createElement("a"), {
-      href: url,
-      download: `handwriting-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.doc`,
-    })
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    setTimeout(() => URL.revokeObjectURL(url), 4000)
-  }, [tokens, fontSize, lineHeight, alignment, textColor, hlColor, marginPx])
+    const iframe = document.createElement("iframe")
+    iframe.setAttribute(
+      "style",
+      "position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none"
+    )
+    iframe.setAttribute("aria-hidden", "true")
+    document.body.appendChild(iframe)
+
+    const win = iframe.contentWindow
+    const doc = iframe.contentDocument
+    if (!win || !doc) {
+      iframe.remove()
+      window.alert("ไม่สามารถเตรียมหน้าพิมพ์ได้")
+      return
+    }
+
+    doc.open()
+    doc.write(docHtml)
+    doc.close()
+    try {
+      doc.title = "\u200b"
+    } catch {
+      /* ignore */
+    }
+
+    const cleanup = () => {
+      iframe.remove()
+    }
+
+    const runPrint = () => {
+      try {
+        win.focus()
+        win.print()
+      } finally {
+        win.addEventListener("afterprint", cleanup, { once: true })
+        window.setTimeout(cleanup, 120_000)
+      }
+    }
+
+    window.setTimeout(runPrint, 200)
+  }, [buildDocumentHtmlFragment, marginPx, lineHeight, fontSize, alignment, textColor, paraSpacing])
 
   const renderChar = ct => {
     const t = ct.variant
-    const slotW = Math.round(fontSize * 0.72)
-    const slotH = Math.round(fontSize * 1.3)
+    const { slotW, slotH } = glyphMetrics(fontSize)
+    const tx = t.shiftX ?? 0
+    const ty = t.shiftYMicro ?? 0
+    const mr = t.microRotate ?? 0
 
     return (
-      <span key={ct.id} style={{ position: "relative", display: "inline-block" }}>
+      <span
+        key={ct.id}
+        style={{
+          position: "relative",
+          display: "inline-block",
+          transform: `translate(${tx}px, ${ty}px) rotate(${mr}deg)`,
+          transformOrigin: "center bottom",
+          verticalAlign: "bottom",
+        }}
+      >
         <GlyphSlot
           glyph={ct.glyph}
           ch={ct.ch}
@@ -442,6 +600,8 @@ body{font-family:"TH Sarabun New","Noto Sans Thai",Tahoma,sans-serif;background:
           textColor={textColor}
           hlColor={hlColor}
           viewBox="0 0 100 100"
+          fontSize={fontSize}
+          strokeWMul={t.strokeWMul ?? 1}
         />
         {showVersionDebug && ct.pickedVersion != null && (
           <span
@@ -467,16 +627,28 @@ body{font-family:"TH Sarabun New","Noto Sans Thai",Tahoma,sans-serif;background:
   }
 
   const renderToken = token => {
-    if (token.type === "newline") return <br key={token.id} />
+    if (token.type === "newline")
+      return (
+        <span
+          key={token.id}
+          style={{
+            display: "block",
+            width: "100%",
+            height: 0,
+            marginBottom: paraSpacing,
+          }}
+        />
+      )
 
     if (token.type === "space") {
+      const { spaceW, slotH } = glyphMetrics(fontSize)
       return (
         <span
           key={token.id}
           style={{
             display: "inline-block",
-            width: Math.round(fontSize * 0.32),
-            height: Math.round(fontSize * 1.3),
+            width: spaceW,
+            height: slotH,
             verticalAlign: "bottom",
             flexShrink: 0,
           }}
@@ -492,13 +664,18 @@ body{font-family:"TH Sarabun New","Noto Sans Thai",Tahoma,sans-serif;background:
           key={token.id}
           style={{
             display: "inline-flex",
+            flexWrap: "wrap",
             alignItems: "flex-end",
-            whiteSpace: "nowrap",
+            gap: 0,
+            rowGap: 0,
+            columnGap: 0,
+            maxWidth: "100%",
             verticalAlign: "bottom",
+            boxSizing: "border-box",
             transform: `rotate(${t.rotate.toFixed(2)}deg) skewX(${t.skewX.toFixed(2)}deg)`,
             transformOrigin: "left bottom",
             position: "relative",
-            top: `${t.shiftY.toFixed(2)}px`,
+            top: `${(t.shiftYWord ?? t.shiftY ?? 0).toFixed(2)}px`,
           }}
         >
           {token.chars.map(ct => renderChar(ct))}
@@ -665,7 +842,7 @@ body{font-family:"TH Sarabun New","Noto Sans Thai",Tahoma,sans-serif;background:
           <RibbonGroup label="ส่งออก">
             <button
               type="button"
-              onClick={exportWord}
+              onClick={exportPdf}
               disabled={!text.trim()}
               style={{
                 height: 28,
@@ -679,7 +856,7 @@ body{font-family:"TH Sarabun New","Noto Sans Thai",Tahoma,sans-serif;background:
                 cursor: text.trim() ? "pointer" : "not-allowed",
               }}
             >
-              Export Word
+              Export PDF
             </button>
             <RibbonBtn active={showVersionDebug} onClick={() => setShowVersionDebug(v => !v)} title="แสดง v1/v2/v3">
               v?
@@ -717,11 +894,11 @@ body{font-family:"TH Sarabun New","Noto Sans Thai",Tahoma,sans-serif;background:
       {!hasFileGlyphs && (
         <div
           style={{
-            margin: "8px 16px 0",
+            margin: "6px 8px 0",
             background: "#fff4ce",
             border: "1px solid #f1c40f",
             borderRadius: 4,
-            padding: "8px 12px",
+            padding: "6px 10px",
             fontSize: 12,
             color: "#605e5c",
           }}
@@ -729,59 +906,109 @@ body{font-family:"TH Sarabun New","Noto Sans Thai",Tahoma,sans-serif;background:
           ยังไม่มี glyph จาก Step 3 — จะแสดงเป็นตัวอักษรธรรมดา
         </div>
       )}
-      {/* ── Editor + Page (Word canvas) ── */}
-      <div style={{ flex: 1, overflow: "auto", padding: "16px 24px 24px" }}>
-        <div style={{ maxWidth: pageWidth + 80, margin: "0 auto" }}>
+
+      {/* ── Split: ซ้าย = input | ขวา = พรีวิวกระดาษ (ชิดกัน) ── */}
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "row",
+          gap: 8,
+          padding: "6px 8px 8px",
+          minHeight: 0,
+          alignItems: "stretch",
+        }}
+      >
+        {/* LEFT — input */}
+        <div
+          style={{
+            flex: "0 1 42%",
+            minWidth: 260,
+            maxWidth: 480,
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+          }}
+        >
           <div
             style={{
-              background: "#fff",
+              background: W.inputCard,
               border: `1px solid ${W.ribbonBorder}`,
-              borderRadius: 4,
-              marginBottom: 10,
-              boxShadow: "0 1px 2px rgba(0,0,0,.06)",
+              borderRadius: 6,
+              boxShadow: "0 1px 3px rgba(0,0,0,.06)",
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              minHeight: 0,
             }}
           >
             <div
               style={{
                 fontSize: 11,
+                fontWeight: 600,
                 color: W.tabInkMuted,
-                padding: "6px 12px",
+                padding: "8px 12px",
                 borderBottom: `1px solid ${W.ribbonBorder}`,
                 background: "#faf9f8",
+                letterSpacing: "0.02em",
               }}
             >
-              พิมพ์ข้อความที่นี่ — ตัวอักษรจะถูกแมปกับลายมือจาก Step 4 (สุ่ม v1 / v2 / v3 ต่อช่อง)
+              ข้อความต้นฉบับ
             </div>
             <textarea
               value={text}
               onChange={e => setText(e.target.value)}
-              rows={3}
-              placeholder="พิมพ์ข้อความภาษาไทยหรือภาษาอังกฤษ…"
+              placeholder="พิมพ์ที่นี่ — ฝั่งขวาจะแสดงลายมือ และขึ้นบรรทัดใหม่ตามขอบกระดาษ"
               style={{
+                flex: 1,
                 width: "100%",
                 boxSizing: "border-box",
                 border: "none",
-                padding: "12px 14px",
+                padding: "10px 12px",
                 fontSize: 14,
-                resize: "vertical",
+                lineHeight: 1.45,
+                resize: "none",
                 outline: "none",
                 fontFamily: "'Segoe UI','DM Sans',system-ui,sans-serif",
-                minHeight: 72,
+                minHeight: 280,
                 background: "#fff",
+                color: W.tabInk,
               }}
             />
           </div>
+          <p style={{ fontSize: 10, color: W.tabInkMuted, margin: 0, lineHeight: 1.45 }}>
+            PDF: กด Export PDF → เลือก &quot;Microsoft Print to PDF&quot;
+            <br />
+            <span style={{ color: W.accent }}>
+              ถ้ามีวันที่/หัวข้อมุมกระดาษ: ในกล่องพิมพ์เปิด &quot;More settings&quot; แล้วปิด &quot;Headers and footers&quot;
+            </span>{" "}
+            — เว็บไม่สามารถปิดให้อัตโนมัติได้
+          </p>
+        </div>
 
-          {/* Single page — Word document body */}
+        {/* RIGHT — paper well */}
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            background: W.pageWell,
+            borderRadius: 6,
+            border: `1px solid #1a1a1a`,
+            boxShadow: "inset 0 0 0 1px rgba(255,255,255,.04)",
+            overflow: "auto",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "flex-start",
+            padding: "12px 10px 16px",
+          }}
+        >
           <div
             style={{
               width: "100%",
-              maxWidth: pageWidth,
-              margin: "0 auto",
-              minHeight: 880,
+              maxWidth: 595,
+              minHeight: 842,
               background: W.page,
-              boxShadow: "0 2px 8px rgba(0,0,0,.12), 0 0 1px rgba(0,0,0,.08)",
-              border: `1px solid ${W.ribbonBorder}`,
+              boxShadow: "0 4px 24px rgba(0,0,0,.45), 0 0 0 1px rgba(0,0,0,.12)",
               padding: `${marginPx}px`,
               boxSizing: "border-box",
             }}
@@ -792,15 +1019,19 @@ body{font-family:"TH Sarabun New","Noto Sans Thai",Tahoma,sans-serif;background:
                 lineHeight,
                 color: textColor,
                 textAlign: alignment,
-                minHeight: 720,
-                paddingBottom: paraSpacing,
-                whiteSpace: "pre-wrap",
-                wordBreak: "keep-all",
-                overflowWrap: "normal",
+                width: "100%",
+                maxWidth: "100%",
+                boxSizing: "border-box",
+                minHeight: 640,
+                wordBreak: "break-word",
+                overflowWrap: "anywhere",
+                overflowX: "hidden",
+                WebkitFontSmoothing: "antialiased",
+                textRendering: "optimizeLegibility",
               }}
             >
               {tokens.length === 0 ? (
-                <span style={{ opacity: 0.35, color: W.tabInkMuted }}>พิมพ์ด้านบนเพื่อดูลายมือบนหน้ากระดาษ…</span>
+                <span style={{ opacity: 0.35, color: W.tabInkMuted }}>พิมพ์ฝั่งซ้ายเพื่อดูลายมือบนกระดาษ…</span>
               ) : (
                 tokens.map(renderToken)
               )}
