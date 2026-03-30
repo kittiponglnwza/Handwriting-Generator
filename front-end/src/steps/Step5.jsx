@@ -337,10 +337,10 @@ export default function Step5({
   )
   const [dnaNonce, setDnaNonce] = useState(0)
   const [fontSize, setFontSize] = useState(38)
-  const [lineHeight, setLineHeight] = useState(1.08)
+  const [lineHeight, setLineHeight] = useState(1.02)
   const [alignment, setAlignment] = useState("left")
   const [fontWeight, setFontWeight] = useState("normal")
-  const [paraSpacing, setParaSpacing] = useState(4)
+  const [paraSpacing, setParaSpacing] = useState(2)
   const [textColor, setTextColor] = useState("#2C2416")
   const [hlColor, setHlColor] = useState("")
   const [marginPx, setMarginPx] = useState(48)
@@ -351,7 +351,7 @@ export default function Step5({
   // ใช้ transform scale กับฝั่ง preview เพื่อลด layout shift
 
   // Export shift (แกน X) - ใช้ปรับตำแหน่งตอนส่งออกโดยไม่กระทบ preview layout มาก
-  const [outputOffsetX, setOutputOffsetX] = useState(0)
+  const [outputOffsetX, setOutputOffsetX] = useState(64)
 
   const TEXT_COLORS = ["#2C2416", "#1a3a5c", "#2e6b3e", "#8b3a2a", "#5c3d7a", "#605e5c"]
   const HL_COLORS = ["", "#fff9c4", "#c8f7c5", "#d4e6ff", "#ffe0cc", "#f5d0f5"]
@@ -797,6 +797,25 @@ body {
                 </option>
               ))}
             </select>
+            <input
+              type="number"
+              min={16}
+              max={120}
+              step={1}
+              value={fontSize}
+              onChange={e => setFontSize(Math.max(16, Math.min(120, Number(e.target.value) || 16)))}
+              style={{
+                height: 26,
+                width: 72,
+                padding: "0 6px",
+                fontSize: 12,
+                borderRadius: 4,
+                border: `1px solid ${W.ribbonBorder}`,
+                background: "#fff",
+              }}
+              aria-label="Font size custom"
+              title="Font size custom"
+            />
             {WEIGHT_OPTS.map(w => (
               <RibbonBtn key={w} active={fontWeight === w} onClick={() => setFontWeight(w)} title={w}>
                 <span style={{ fontWeight: w === "bold" ? 700 : w === "light" ? 300 : 500, fontSize: 11 }}>
@@ -821,6 +840,38 @@ body {
                 {p.label}×
               </RibbonBtn>
             ))}
+            <label
+              style={{
+                fontSize: 11,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "0 6px",
+                marginTop: 2,
+              }}
+              title="กำหนดระยะบรรทัดเอง"
+            >
+              <span style={{ color: W.tabInkMuted, whiteSpace: "nowrap" }}>Custom</span>
+              <input
+                type="number"
+                min={0.7}
+                max={3}
+                step={0.01}
+                value={lineHeight}
+                onChange={e => setLineHeight(Math.max(0.7, Math.min(3, Number(e.target.value) || 1)))}
+                style={{
+                  width: 78,
+                  height: 24,
+                  padding: "0 6px",
+                  fontSize: 12,
+                  borderRadius: 4,
+                  border: `1px solid ${W.ribbonBorder}`,
+                  background: "#fff",
+                }}
+                aria-label="Custom line height"
+              />
+              <span style={{ color: W.tabInkMuted }}>x</span>
+            </label>
             {ALIGN_OPTS.map(a => (
               <RibbonBtn
                 key={a.id}
