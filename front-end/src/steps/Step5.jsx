@@ -152,14 +152,14 @@ const W = {
 
 /** ช่องตัวอักษรเทียบ fontSize — ค่าเดิม 0.72/1.3 ทำให้ตัวห่างเกินจริง */
 // คืนขนาดตัวอักษรให้ใหญ่ขึ้น (เดิมลดไปเพื่อให้ชิด)
-const GLYPH_SLOT_W_RATIO = 0.3
-const GLYPH_SLOT_H_RATIO = 0.98
+const GLYPH_SLOT_W_RATIO = 0.65
+const GLYPH_SLOT_H_RATIO = 1.28
 // ลดช่องว่างระหว่างตัวให้ชิดขึ้น (คนพิมพ์ไม่เว้นเท่ากัน)
-const GLYPH_SPACE_W_RATIO = 0.075
+const GLYPH_SPACE_W_RATIO = 0.26
 
 // Overlap (ทับ) ระหว่างตัว เพื่อให้ “เป็นคำ” อ่านง่าย
 // ยิ่งค่านี้สูง ยิ่งชิด/ยิ่งทับมาก (แต่ไม่กระทบขนาด glyph โดยตรง)
-const OVERLAP_FACTOR = 0.38
+const OVERLAP_FACTOR = 0.30
 
 function glyphMetrics(fontSize) {
   const fs = Number(fontSize) || 32
@@ -202,8 +202,8 @@ export default function Step5({
   // (ทำให้ seed การเลือก version เปลี่ยนทุกครั้งที่แก้ข้อความ)
   const [editNonce, setEditNonce] = useState(0)
   const [dnaNonce, setDnaNonce] = useState(0)
-  const [fontSize, setFontSize] = useState(38)
-  const [lineHeight, setLineHeight] = useState(1.02)
+  const [fontSize, setFontSize] = useState(48)
+  const [lineHeight, setLineHeight] = useState(1.15)
   const [alignment, setAlignment] = useState("left")
   const [fontWeight, setFontWeight] = useState("normal")
   const [paraSpacing, setParaSpacing] = useState(2)
@@ -361,8 +361,23 @@ body {
     window.setTimeout(runPrint, 200)
   }, [buildDocumentHtmlFragment, marginPx, lineHeight, fontSize, alignment, textColor, paraSpacing])
 
-  const renderChar = (ct, idx) => {
+  /** สุ่ม version ระดับคำ — deterministic จาก token id + dnaNonce */
+  const wordVersionFor = (tokenId) => {
+    let h = (dnaNonce + 1) * 2654435761
+    for (let i = 0; i < tokenId.length; i++) {
+      h = Math.imul(h ^ tokenId.charCodeAt(i), 2246822519) >>> 0
+    }
+    return h
+  }
+
+  const renderChar = (ct, idx, wordVerIdx) => {
     const t = ct.variant
+    // ใช้ version ระดับคำ (wordVerIdx) แทน version ระดับตัวอักษร
+    const chKey = String(ct.ch || "")
+    const chGlyphs = glyphMap.get(chKey) || []
+    const resolvedGlyph = chGlyphs.length > 0 && wordVerIdx != null
+      ? chGlyphs[wordVerIdx % chGlyphs.length]
+      : ct.glyph
     const { slotW, slotH } = glyphMetrics(fontSize)
     const tx = t.shiftX ?? 0
     const ty = t.shiftYMicro ?? 0
@@ -385,7 +400,7 @@ body {
         }}
       >
         <GlyphSlot
-          glyph={ct.glyph}
+          glyph={resolvedGlyph}
           ch={ct.ch}
           slotW={slotW}
           slotH={slotH}
@@ -452,6 +467,8 @@ body {
     if (token.type === "word") {
       const t = token.chars[0]?.variant
       if (!t) return null
+      // สุ่ม version เดียวสำหรับทั้งคำ
+      const wordVerIdx = wordVersionFor(token.id)
       return (
         <span
           key={token.id}
@@ -472,7 +489,7 @@ body {
             top: `${(t.shiftYWord ?? t.shiftY ?? 0).toFixed(2)}px`,
           }}
         >
-          {token.chars.map((ct, idx) => renderChar(ct, idx))}
+          {token.chars.map((ct, idx) => renderChar(ct, idx, wordVerIdx))}
         </span>
       )
     }
