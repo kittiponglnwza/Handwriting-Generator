@@ -151,15 +151,15 @@ const W = {
 }
 
 /** ช่องตัวอักษรเทียบ fontSize — ค่าเดิม 0.72/1.3 ทำให้ตัวห่างเกินจริง */
-// คืนขนาดตัวอักษรให้ใหญ่ขึ้น (เดิมลดไปเพื่อให้ชิด)
-const GLYPH_SLOT_W_RATIO = 0.65
-const GLYPH_SLOT_H_RATIO = 1.28
+// ลด slot ให้แคบลง + เพิ่ม overlap เพื่อให้ตัวอักษรชิดกันแบบลายมือจริง
+const GLYPH_SLOT_W_RATIO = 0.62
+const GLYPH_SLOT_H_RATIO = 1.10
 // ลดช่องว่างระหว่างตัวให้ชิดขึ้น (คนพิมพ์ไม่เว้นเท่ากัน)
 const GLYPH_SPACE_W_RATIO = 0.26
 
 // Overlap (ทับ) ระหว่างตัว เพื่อให้ “เป็นคำ” อ่านง่าย
 // ยิ่งค่านี้สูง ยิ่งชิด/ยิ่งทับมาก (แต่ไม่กระทบขนาด glyph โดยตรง)
-const OVERLAP_FACTOR = 0.30
+const OVERLAP_FACTOR = 0.22
 
 function glyphMetrics(fontSize) {
   const fs = Number(fontSize) || 32
