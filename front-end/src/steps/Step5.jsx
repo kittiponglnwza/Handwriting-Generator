@@ -1,74 +1,14 @@
 import { useMemo, useState, useCallback } from "react"
 import { DOCUMENT_SEED } from "../lib/documentSeed.js"
-
-// ─── Hash / RNG ───────────────────────────────────────────────────────────────
-function hashString(input) {
-  let hash = 2166136261
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i)
-    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24)
-  }
-  return hash >>> 0
-}
-
-function createRng(seedStr) {
-  let t = (hashString(seedStr) || 1) >>> 0
-  return () => {
-    t = (t + 0x6d2b79f5) >>> 0
-    let x = Math.imul(t ^ (t >>> 15), 1 | t)
-    x ^= x + Math.imul(x ^ (x >>> 7), 61 | x)
-    return ((x ^ (x >>> 14)) >>> 0) / 4294967296
-  }
-}
-
-function lerp(min, max, t) {
-  return min + (max - min) * t
-}
-
-function buildWordStyle(wordRng, weight = "normal") {
-  return {
-    rotate: lerp(-1.0, 1.0, wordRng()),
-    skewX: lerp(-1.0, 1.0, wordRng()),
-    scaleY: lerp(0.98, 1.02, wordRng()),
-    shiftY: lerp(-1.0, 1.0, wordRng()),
-    opacity:
-      weight === "bold" ? lerp(0.92, 1.0, wordRng())
-      : weight === "light" ? lerp(0.6, 0.76, wordRng())
-      : lerp(0.88, 1.0, wordRng()),
-  }
-}
-
-function buildCharVariant(charRng, wordStyle, weight = "normal") {
-  const widthScale = weight === "bold" ? 0.6 : weight === "light" ? 0.52 : 0.56
-  return {
-    rotate: wordStyle.rotate,
-    skewX: wordStyle.skewX,
-    shiftYWord: wordStyle.shiftY,
-    scaleX: 1.0,
-    scaleY: wordStyle.scaleY,
-    shiftX: lerp(-1.35, 1.35, charRng()),
-    shiftYMicro: lerp(-1.1, 1.1, charRng()),
-    microRotate: lerp(-0.55, 0.55, charRng()),
-    opacity: wordStyle.opacity * lerp(0.93, 1, charRng()),
-    strokeWMul: lerp(0.88, 1.06, charRng()),
-    widthScale,
-    kerning: 0,
-  }
-}
+import { buildTokens } from "../lib/step5/tokens.js"
+import { buildDocumentHtmlFragment as buildDocumentHtmlFragmentLib } from "../lib/step5/documentHtml.js"
+import Step5Toolbar from "./step5/Step5Toolbar.jsx"
+import Step5Preview from "./step5/Step5Preview.jsx"
 
 /** ความหนาเส้นปากกาเทียบ fontSize — พิมพ์/จอใช้สูตรเดียวกัน */
 function penStrokeWidth(fontSize, mul = 1) {
   const fs = Number(fontSize) || 32
   return Math.max(1.2, Math.min(3.5, fs * 0.064 * mul))
-}
-
-function escapeHtml(s) {
-  return s
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;")
 }
 
 function normalizePngDataUrl(dataUrl) {
@@ -248,83 +188,6 @@ const ALIGN_OPTS = [
 const WEIGHT_OPTS = ["light", "normal", "bold"]
 const FONT_SIZES = [24, 28, 32, 36, 42, 48, 56, 64]
 
-function RibbonBtn({ onClick, active, title, children, disabled }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        minWidth: 28,
-        height: 26,
-        padding: "0 6px",
-        border: `1px solid ${active ? W.accent : "transparent"}`,
-        borderRadius: 4,
-        background: active ? "#deecf9" : "transparent",
-        color: active ? W.accent : W.tabInk,
-        cursor: disabled ? "not-allowed" : "pointer",
-        fontSize: 12,
-        opacity: disabled ? 0.45 : 1,
-      }}
-    >
-      {children}
-    </button>
-  )
-}
-
-function RibbonGroup({ label, children }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        gap: 4,
-        padding: "6px 10px 4px",
-        borderLeft: `1px solid ${W.ribbonBorder}`,
-        minHeight: 72,
-      }}
-    >
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 2, justifyContent: "center" }}>{children}</div>
-      <span
-        style={{
-          fontSize: 10,
-          color: W.groupLabel,
-          userSelect: "none",
-          marginTop: "auto",
-          paddingTop: 2,
-        }}
-      >
-        {label}
-      </span>
-    </div>
-  )
-}
-
-function ColorDot({ color, active, onClick, title }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      style={{
-        width: 18,
-        height: 18,
-        borderRadius: "50%",
-        background: color,
-        border: active ? `2px solid ${W.accent}` : `1px solid #c8c6c4`,
-        cursor: "pointer",
-        flexShrink: 0,
-        transform: active ? "scale(1.1)" : "scale(1)",
-      }}
-    />
-  )
-}
-
 export default function Step5({
   selected = [],
   templateChars = [],
@@ -335,6 +198,9 @@ export default function Step5({
   const [text, setText] = useState(
     "สวัสดีครับ นี่คือตัวอย่างเอกสารจากลายมือ Step 4 → Step 5"
   )
+  // กันปัญหา: ลบ/พิมพ์ใหม่แล้ว ver ติดเดิม
+  // (ทำให้ seed การเลือก version เปลี่ยนทุกครั้งที่แก้ข้อความ)
+  const [editNonce, setEditNonce] = useState(0)
   const [dnaNonce, setDnaNonce] = useState(0)
   const [fontSize, setFontSize] = useState(38)
   const [lineHeight, setLineHeight] = useState(1.02)
@@ -376,137 +242,34 @@ export default function Step5({
     return m
   }, [activeGlyphs])
 
-  const tokens = useMemo(() => {
-    const list = []
-    const segments = (text || "").split(/( |\n)/)
-    let globalIdx = 0
-
-    for (const seg of segments) {
-      if (seg === "\n") {
-        list.push({ type: "newline", id: `n-${globalIdx++}` })
-        continue
-      }
-      if (seg === " " || seg === "") {
-        if (seg === " ") list.push({ type: "space", id: `s-${globalIdx++}` })
-        continue
-      }
-
-      const wordSeed = `${documentSeed}-${dnaNonce}-w${globalIdx}-${seg}`
-      const wordRng = createRng(wordSeed)
-      const wordStyle = buildWordStyle(wordRng, fontWeight)
-      const chars = Array.from(seg)
-      const charTokens = []
-
-      for (let ci = 0; ci < chars.length; ci++) {
-        const ch = chars[ci]
-        const charRng = createRng(`${wordSeed}-c${ci}`)
-        const variant = buildCharVariant(charRng, wordStyle, fontWeight)
-
-        const candidates = glyphMap.get(ch) || []
-        const pickRng = createRng(`${wordSeed}-c${ci}-pick`)
-        const pickIdx = candidates.length > 0 ? Math.floor(pickRng() * candidates.length) : -1
-        const glyph = pickIdx >= 0 ? candidates[pickIdx] : null
-
-        charTokens.push({
-          type: "char",
-          id: `c-${globalIdx}-${ci}`,
-          ch,
-          variant,
-          glyph,
-          preview: glyph ? normalizePngDataUrl(glyph.previewInk || glyph.preview || "") : "",
-          pickedVersion: glyph?.version ?? null,
-        })
-      }
-
-      list.push({ type: "word", id: `word-${globalIdx}`, chars: charTokens })
-      globalIdx += seg.length
-    }
-    return list
-  }, [text, glyphMap, dnaNonce, fontWeight, documentSeed])
+  const tokens = useMemo(
+    () =>
+      buildTokens({
+        text,
+        glyphMap,
+        documentSeed,
+        dnaNonce,
+        editNonce,
+        fontWeight,
+      }),
+    [text, glyphMap, dnaNonce, fontWeight, documentSeed, editNonce]
+  )
 
   /** Build HTML fragment (preview + print) — words wrap; long strings break inside page width */
-  const buildDocumentHtmlFragment = useCallback(() => {
-    const pieces = []
-    const { slotW, slotH, spaceW } = glyphMetrics(fontSize)
-
-    for (const token of tokens) {
-      if (token.type === "newline") {
-        pieces.push('<span class="hw-br"></span>')
-        continue
-      }
-      if (token.type === "space") {
-        pieces.push(
-          `<span style="display:inline-block;width:${spaceW}px;height:${slotH}px;vertical-align:bottom;flex-shrink:0"></span>`
-        )
-        continue
-      }
-      if (token.type !== "word") continue
-
-      const t0 = token.chars[0]?.variant
-      if (!t0) continue
-      const rotate = t0.rotate.toFixed(2)
-      const skewX = t0.skewX.toFixed(2)
-      const topPx = (t0.shiftYWord ?? t0.shiftY ?? 0).toFixed(2)
-
-      const charPieces = token.chars.map((ct, ci) => {
-        const v = ct.variant
-        const hl = hlColor ? `background:${hlColor};` : ""
-        const g = ct.glyph
-        const hasSvg =
-          g &&
-          typeof g.svgPath === "string" &&
-          g.svgPath.trim() !== "" &&
-          g.svgPath.trim() !== "M 0 0"
-
-        const pngInk = g ? normalizePngDataUrl(g.previewInk || "") : ""
-        const pngUse = pngInk
-        const sw = penStrokeWidth(fontSize, v.strokeWMul ?? 1).toFixed(2)
-        const op = (v.opacity ?? 1).toFixed(3)
-        const tx = (v.shiftX ?? 0).toFixed(2)
-        const ty = (v.shiftYMicro ?? 0).toFixed(2)
-        const mr = (v.microRotate ?? 0).toFixed(2)
-
-        let inner
-        if (hasSvg) {
-          const vb = g.viewBox || "0 0 100 100"
-          inner =
-            `<svg viewBox="${vb}" style="width:100%;height:100%;display:block;shape-rendering:geometricPrecision;overflow:visible" aria-label="${escapeHtml(ct.ch)}">` +
-            `<path d="${escapeHtml(g.svgPath)}" fill="none" stroke="${textColor}" ` +
-            `stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" paint-order="stroke fill"/></svg>`
-        } else if (pngUse) {
-          inner =
-            `<img src="${pngUse}" alt="${escapeHtml(ct.ch)}" ` +
-            `style="width:100%;height:100%;object-fit:contain;object-position:left bottom;display:block;mix-blend-mode:multiply" />`
-        } else {
-          inner = escapeHtml(ct.ch)
-        }
-
-        // ใช้ slotW จริงเพื่อไม่ให้ตัวอักษรถูกบีบจนเล็ก
-        const overlapPx = Math.min(Math.max(0, Math.round(slotW * OVERLAP_FACTOR)), Math.max(0, slotW - 1))
-
-        const marginLeftPx = ci === 0 ? 0 : -overlapPx
-
-        return (
-          `<span style="display:inline-block;transform:translate(${tx}px,${ty}px) rotate(${mr}deg);` +
-            `transform-origin:center bottom;vertical-align:bottom;margin-right:-${overlapPx}px;margin-left:${marginLeftPx}px">` +
-            `<span style="display:inline-block;width:${slotW}px;height:${slotH}px;` +
-            `vertical-align:bottom;flex-shrink:0;margin-right:0;${hl}">` +
-            `<span style="display:inline-flex;align-items:flex-end;justify-content:flex-start;` +
-            `width:100%;height:100%;opacity:${op};color:${textColor};overflow:visible">` +
-            `${inner}</span></span></span>`
-        )
-      })
-
-      pieces.push(
-        `<span class="hw-word" style="display:inline-flex;flex-wrap:wrap;align-items:flex-end;gap:0;row-gap:0;` +
-          `column-gap:0;max-width:100%;vertical-align:bottom;position:relative;top:${topPx}px;overflow:visible;` +
-          `transform:rotate(${rotate}deg) skewX(${skewX}deg);transform-origin:left bottom;box-sizing:border-box">` +
-          charPieces.join("") +
-          `</span>`
-      )
-    }
-    return pieces.join("")
-  }, [tokens, fontSize, textColor, hlColor])
+  const buildDocumentHtmlFragment = useCallback(
+    () =>
+      buildDocumentHtmlFragmentLib({
+        tokens,
+        fontSize,
+        textColor,
+        hlColor,
+        slotWRatio: GLYPH_SLOT_W_RATIO,
+        slotHRatio: GLYPH_SLOT_H_RATIO,
+        spaceWRatio: GLYPH_SPACE_W_RATIO,
+        overlapFactor: OVERLAP_FACTOR,
+      }),
+    [tokens, fontSize, textColor, hlColor]
+  )
 
   /**
    * พิมพ์เป็น PDF — เนื้อหาในหน้า = แค่ข้อความลายมือ (ไม่มีหัวข้อใน HTML)
@@ -545,6 +308,7 @@ body {
   overflow-wrap: anywhere;
   overflow-x: hidden;
 }
+.hw-word { page-break-inside: avoid; break-inside: avoid; }
 .hw-br { display: block; width: 100%; height: 0; margin: 0 0 ${paraSpacing}px 0; padding: 0; clear: both; }
 @media print {
   body { background: #fff; }
@@ -552,7 +316,7 @@ body {
 }
 </style></head>
 <body>
-  <div class="paper"><div style="transform: translateX(${outputOffsetX}px); transform-origin: top left;">${inner}</div></div>
+  <div class="paper"><div style="margin-left:${outputOffsetX}px; transform-origin: top left;">${inner}</div></div>
 </body></html>`
 
     const iframe = document.createElement("iframe")
@@ -726,515 +490,61 @@ body {
         background: W.canvas,
       }}
     >
-      {/* ── Title strip (Word-style) ── */}
-      <div
-        style={{
-          background: W.tabActive,
-          borderBottom: `1px solid ${W.ribbonBorder}`,
-          padding: "6px 12px 0",
-          flexShrink: 0,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
-          <span style={{ fontSize: 12, color: W.tabInkMuted, padding: "4px 10px" }}>ไฟล์</span>
-          <span
-            style={{
-              fontSize: 12,
-              fontWeight: 600,
-              color: W.tabInk,
-              padding: "6px 14px",
-              borderBottom: `3px solid ${W.accent}`,
-              marginBottom: -1,
-            }}
-          >
-            หน้าแรก
-          </span>
-          <span style={{ fontSize: 12, color: W.tabInkMuted, padding: "4px 10px" }}>แทรก</span>
-          <span style={{ fontSize: 12, color: W.tabInkMuted, padding: "4px 10px" }}>การออกแบบ</span>
-          <div style={{ flex: 1 }} />
-          <span style={{ fontSize: 11, color: W.tabInkMuted }}>
-            {hasFileGlyphs
-              ? `ลายมือ: ${versionedGlyphs.length} สล็อต (×3 เวอร์ชัน) • Step 3 → DNA`
-              : "ยังไม่มี glyph — อัปโหลด PDF ใน Step 2"}
-          </span>
-        </div>
-
-        {/* ── Ribbon toolbar ── */}
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            alignItems: "stretch",
-            background: W.ribbonBg,
-            border: `1px solid ${W.ribbonBorder}`,
-            borderRadius: "4px 4px 0 0",
-            marginTop: 4,
-          }}
-        >
-          <RibbonGroup label="คลิปบอร์ด">
-            <RibbonBtn title="สุ่มลายมือใหม่" onClick={() => setDnaNonce(n => n + 1)}>
-              🎲 DNA
-            </RibbonBtn>
-          </RibbonGroup>
-
-          <RibbonGroup label="แบบอักษร">
-            <select
-              value={fontSize}
-              onChange={e => setFontSize(Number(e.target.value))}
-              style={{
-                height: 26,
-                padding: "0 6px",
-                fontSize: 12,
-                borderRadius: 4,
-                border: `1px solid ${W.ribbonBorder}`,
-                background: "#fff",
-                minWidth: 64,
-              }}
-            >
-              {FONT_SIZES.map(s => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-            <input
-              type="number"
-              min={16}
-              max={120}
-              step={1}
-              value={fontSize}
-              onChange={e => setFontSize(Math.max(16, Math.min(120, Number(e.target.value) || 16)))}
-              style={{
-                height: 26,
-                width: 72,
-                padding: "0 6px",
-                fontSize: 12,
-                borderRadius: 4,
-                border: `1px solid ${W.ribbonBorder}`,
-                background: "#fff",
-              }}
-              aria-label="Font size custom"
-              title="Font size custom"
-            />
-            {WEIGHT_OPTS.map(w => (
-              <RibbonBtn key={w} active={fontWeight === w} onClick={() => setFontWeight(w)} title={w}>
-                <span style={{ fontWeight: w === "bold" ? 700 : w === "light" ? 300 : 500, fontSize: 11 }}>
-                  {w === "bold" ? "B" : w === "light" ? "L" : "Aa"}
-                </span>
-              </RibbonBtn>
-            ))}
-            <span style={{ fontSize: 10, color: W.tabInkMuted, marginLeft: 4 }}>สี</span>
-            {TEXT_COLORS.map(c => (
-              <ColorDot key={c} color={c} active={textColor === c} onClick={() => setTextColor(c)} title={c} />
-            ))}
-          </RibbonGroup>
-
-          <RibbonGroup label="ย่อหน้า">
-            {LINE_PRESETS.map(p => (
-              <RibbonBtn
-                key={p.value}
-                active={lineHeight === p.value}
-                onClick={() => setLineHeight(p.value)}
-                title={`ระยะบรรทัด ${p.label}`}
-              >
-                {p.label}×
-              </RibbonBtn>
-            ))}
-            <label
-              style={{
-                fontSize: 11,
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "0 6px",
-                marginTop: 2,
-              }}
-              title="กำหนดระยะบรรทัดเอง"
-            >
-              <span style={{ color: W.tabInkMuted, whiteSpace: "nowrap" }}>Custom</span>
-              <input
-                type="number"
-                min={0.7}
-                max={3}
-                step={0.01}
-                value={lineHeight}
-                onChange={e => setLineHeight(Math.max(0.7, Math.min(3, Number(e.target.value) || 1)))}
-                style={{
-                  width: 78,
-                  height: 24,
-                  padding: "0 6px",
-                  fontSize: 12,
-                  borderRadius: 4,
-                  border: `1px solid ${W.ribbonBorder}`,
-                  background: "#fff",
-                }}
-                aria-label="Custom line height"
-              />
-              <span style={{ color: W.tabInkMuted }}>x</span>
-            </label>
-            {ALIGN_OPTS.map(a => (
-              <RibbonBtn
-                key={a.id}
-                active={alignment === a.id}
-                onClick={() => setAlignment(a.id)}
-                title={a.title}
-              >
-                {a.icon}
-              </RibbonBtn>
-            ))}
-            <span style={{ fontSize: 10, color: W.tabInkMuted }}>HL</span>
-            {HL_COLORS.map((c, i) => (
-              <ColorDot
-                key={i}
-                color={c || "#f3f2f1"}
-                active={hlColor === c}
-                onClick={() => setHlColor(c)}
-                title={c || "ไม่เน้น"}
-              />
-            ))}
-          </RibbonGroup>
-
-          <RibbonGroup label="หน้า">
-            <label style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}>
-              ขอบ
-              <input
-                type="range"
-                min={16}
-                max={96}
-                value={marginPx}
-                onChange={e => setMarginPx(+e.target.value)}
-                style={{ width: 72, accentColor: W.accent }}
-              />
-              <span style={{ minWidth: 28 }}>{marginPx}</span>
-            </label>
-            <label style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}>
-              ระยะย่อหน้า
-              <input
-                type="range"
-                min={0}
-                max={28}
-                value={paraSpacing}
-                onChange={e => setParaSpacing(+e.target.value)}
-                style={{ width: 64, accentColor: W.accent }}
-              />
-            </label>
-          </RibbonGroup>
-
-          <RibbonGroup label="ส่งออก">
-            <button
-              type="button"
-              onClick={exportPdf}
-              disabled={!text.trim()}
-              style={{
-                height: 28,
-                padding: "0 16px",
-                borderRadius: 4,
-                border: "none",
-                background: text.trim() ? W.accent : "#c8c6c4",
-                color: "#fff",
-                fontWeight: 600,
-                fontSize: 12,
-                cursor: text.trim() ? "pointer" : "not-allowed",
-              }}
-            >
-              Export PDF
-            </button>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 6 }}>
-              <span style={{ fontSize: 10, color: W.tabInkMuted, whiteSpace: "nowrap" }}>Output X</span>
-              <input
-                type="range"
-                min={-120}
-                max={120}
-                value={outputOffsetX}
-                onChange={e => setOutputOffsetX(+e.target.value)}
-                style={{ width: 110, accentColor: W.accent }}
-              />
-              <span style={{ fontSize: 10, color: W.tabInkMuted, minWidth: 34, textAlign: "right" }}>
-                {outputOffsetX}
-              </span>
-            </div>
-            <RibbonBtn active={showVersionDebug} onClick={() => setShowVersionDebug(v => !v)} title="แสดง v1/v2/v3">
-              v?
-            </RibbonBtn>
-          </RibbonGroup>
-        </div>
-      </div>
-
-      {/* ── Ruler ── */}
-      <div
-        style={{
-          height: 22,
-          background: "linear-gradient(to bottom,#faf9f8,#edebe9)",
-          borderBottom: `1px solid ${W.ribbonBorder}`,
-          display: "flex",
-          alignItems: "flex-end",
-          paddingLeft: Math.min(marginPx, 80),
-          paddingRight: Math.min(marginPx, 80),
-          flexShrink: 0,
-        }}
-      >
-        {Array.from({ length: 24 }, (_, i) => (
-          <div
-            key={i}
-            style={{
-              flex: 1,
-              height: i % 5 === 0 ? 10 : 5,
-              borderLeft: `1px solid ${i % 5 === 0 ? "#a19f9d" : "#d2d0ce"}`,
-            }}
-          />
-        ))}
-      </div>
-
-      {/* ── Warnings ── */}
-      {!hasFileGlyphs && (
-        <div
-          style={{
-            margin: "6px 8px 0",
-            background: "#fff4ce",
-            border: "1px solid #f1c40f",
-            borderRadius: 4,
-            padding: "6px 10px",
-            fontSize: 12,
-            color: "#605e5c",
-          }}
-        >
-          ยังไม่มี glyph จาก Step 3 — จะแสดงเป็นตัวอักษรธรรมดา
-        </div>
-      )}
-
-      {/* ── Split: ซ้าย = input | ขวา = พรีวิวกระดาษ (ชิดกัน) ── */}
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "row",
-          gap: 8,
-          padding: "6px 8px 8px",
-          minHeight: 0,
-          alignItems: "stretch",
-        }}
-      >
-        {/* LEFT — input */}
-        <div
-          style={{
-            flex: "0 1 42%",
-            minWidth: 260,
-            maxWidth: 480,
-            display: "flex",
-            flexDirection: "column",
-            gap: 6,
-          }}
-        >
-          <div
-            style={{
-              background: W.inputCard,
-              border: `1px solid ${W.ribbonBorder}`,
-              borderRadius: 6,
-              boxShadow: "0 1px 3px rgba(0,0,0,.06)",
-              flex: 1,
-              display: "flex",
-              flexDirection: "column",
-              minHeight: 0,
-            }}
-          >
-            <div
-              style={{
-                fontSize: 11,
-                fontWeight: 600,
-                color: W.tabInkMuted,
-                padding: "8px 12px",
-                borderBottom: `1px solid ${W.ribbonBorder}`,
-                background: "#faf9f8",
-                letterSpacing: "0.02em",
-              }}
-            >
-              ข้อความต้นฉบับ
-            </div>
-            <textarea
-              value={text}
-              onChange={e => setText(e.target.value)}
-              placeholder="พิมพ์ที่นี่ — ฝั่งขวาจะแสดงลายมือ และขึ้นบรรทัดใหม่ตามขอบกระดาษ"
-              style={{
-                flex: 1,
-                width: "100%",
-                boxSizing: "border-box",
-                border: "none",
-                padding: "10px 12px",
-                fontSize: 14,
-                lineHeight: 1.45,
-                resize: "none",
-                outline: "none",
-                fontFamily: "'Segoe UI','DM Sans',system-ui,sans-serif",
-                minHeight: 280,
-                background: "#fff",
-                color: W.tabInk,
-              }}
-            />
-          </div>
-          <p style={{ fontSize: 10, color: W.tabInkMuted, margin: 0, lineHeight: 1.45 }}>
-            PDF: กด Export PDF → เลือก &quot;Microsoft Print to PDF&quot;
-            <br />
-            <span style={{ color: W.accent }}>
-              ถ้ามีวันที่/หัวข้อมุมกระดาษ: ในกล่องพิมพ์เปิด &quot;More settings&quot; แล้วปิด &quot;Headers and footers&quot;
-            </span>{" "}
-            — เว็บไม่สามารถปิดให้อัตโนมัติได้
-          </p>
-        </div>
-
-        {/* RIGHT — paper well */}
-        <div
-          style={{
-            flex: 1,
-            minWidth: 0,
-            background: W.pageWell,
-            borderRadius: 6,
-            border: `1px solid #1a1a1a`,
-            boxShadow: "inset 0 0 0 1px rgba(255,255,255,.04)",
-            overflowY: "scroll",
-            overflowX: "hidden",
-            position: "relative",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "flex-start",
-            padding: "12px 10px 16px",
-          }}
-        >
-          {/* Zoom controls (preview only) */}
-          <div
-            style={{
-              position: "absolute",
-              top: 8,
-              right: 10,
-              zIndex: 5,
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              background: "rgba(255,255,255,0.92)",
-              border: `1px solid ${W.ribbonBorder}`,
-              borderRadius: 10,
-              padding: "6px 8px",
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => setPreviewZoom(z => Math.max(0.7, +(z - 0.1).toFixed(2)))}
-              style={{
-                width: 26,
-                height: 26,
-                borderRadius: 8,
-                border: `1px solid ${W.ribbonBorder}`,
-                background: "#fff",
-                cursor: "pointer",
-                fontSize: 14,
-                color: W.tabInk,
-              }}
-              aria-label="Zoom out"
-              title="Zoom out"
-            >
-              -
-            </button>
-            <span style={{ fontSize: 12, color: W.tabInkMuted, minWidth: 52, textAlign: "center" }}>
-              {Math.round(previewZoom * 100)}%
-            </span>
-            <button
-              type="button"
-              onClick={() => setPreviewZoom(z => Math.min(1.6, +(z + 0.1).toFixed(2)))}
-              style={{
-                width: 26,
-                height: 26,
-                borderRadius: 8,
-                border: `1px solid ${W.ribbonBorder}`,
-                background: "#fff",
-                cursor: "pointer",
-                fontSize: 14,
-                color: W.tabInk,
-              }}
-              aria-label="Zoom in"
-              title="Zoom in"
-            >
-              +
-            </button>
-          </div>
-
-          <div
-            style={{
-              width: "100%",
-              maxWidth: 595,
-              minHeight: 842 * previewZoom,
-              position: "relative",
-            }}
-          >
-            <div
-              style={{
-                width: "100%",
-                maxWidth: 595,
-                minHeight: 842,
-                background: W.page,
-                boxShadow: "0 4px 24px rgba(0,0,0,.45), 0 0 0 1px rgba(0,0,0,.12)",
-                padding: `${marginPx}px`,
-                boxSizing: "border-box",
-                transform: `scale(${previewZoom})`,
-                transformOrigin: "top center",
-              }}
-            >
-              <div
-                style={{
-                  transform: `translateX(${outputOffsetX}px)`,
-                  transformOrigin: "top left",
-                  fontSize,
-                  lineHeight,
-                  color: textColor,
-                  textAlign: alignment,
-                  width: "100%",
-                  maxWidth: "100%",
-                  boxSizing: "border-box",
-                  minHeight: 640,
-                  wordBreak: "break-word",
-                  overflowWrap: "anywhere",
-                  overflowX: "hidden",
-                  WebkitFontSmoothing: "antialiased",
-                  textRendering: "optimizeLegibility",
-                }}
-              >
-                {tokens.length === 0 ? (
-                  <span style={{ opacity: 0.35, color: W.tabInkMuted }}>
-                    พิมพ์ฝั่งซ้ายเพื่อดูลายมือบนกระดาษ…
-                  </span>
-                ) : (
-                  tokens.map(renderToken)
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Status bar ── */}
-      <div
-        style={{
-          height: 26,
-          flexShrink: 0,
-          background: W.statusBg,
-          borderTop: `1px solid ${W.ribbonBorder}`,
-          display: "flex",
-          alignItems: "center",
-          padding: "0 12px",
-          fontSize: 11,
-          color: W.tabInkMuted,
-          gap: 16,
-        }}
-      >
-        <span>หน้า 1 จาก 1</span>
-        <span>คำ: {text.trim() ? text.trim().split(/\s+/).filter(Boolean).length : 0}</span>
-        <span>
-          แหล่งข้อมูล: {usingVersioned ? `versioned (${versionedGlyphs.length})` : `raw (${extractedGlyphs.length})`}
-        </span>
-        <span>ตัวอักษรเทมเพลต {sourceChars.length}</span>
-        <span>seed {documentSeed}</span>
-        <span>dna #{dnaNonce}</span>
-        <div style={{ flex: 1 }} />
-        <span>100%</span>
-      </div>
+      <Step5Toolbar
+        hasFileGlyphs={hasFileGlyphs}
+        versionedGlyphs={versionedGlyphs}
+        fontSize={fontSize}
+        setFontSize={setFontSize}
+        fontWeight={fontWeight}
+        setFontWeight={setFontWeight}
+        textColor={textColor}
+        setTextColor={setTextColor}
+        lineHeight={lineHeight}
+        setLineHeight={setLineHeight}
+        alignment={alignment}
+        setAlignment={setAlignment}
+        hlColor={hlColor}
+        setHlColor={setHlColor}
+        marginPx={marginPx}
+        setMarginPx={setMarginPx}
+        paraSpacing={paraSpacing}
+        setParaSpacing={setParaSpacing}
+        exportPdf={exportPdf}
+        text={text}
+        outputOffsetX={outputOffsetX}
+        setOutputOffsetX={setOutputOffsetX}
+        showVersionDebug={showVersionDebug}
+        setShowVersionDebug={setShowVersionDebug}
+        setDnaNonce={setDnaNonce}
+        LINE_PRESETS={LINE_PRESETS}
+        ALIGN_OPTS={ALIGN_OPTS}
+        WEIGHT_OPTS={WEIGHT_OPTS}
+        FONT_SIZES={FONT_SIZES}
+        TEXT_COLORS={TEXT_COLORS}
+        HL_COLORS={HL_COLORS}
+      />
+      <Step5Preview
+        hasFileGlyphs={hasFileGlyphs}
+        marginPx={marginPx}
+        text={text}
+        setText={setText}
+        setEditNonce={setEditNonce}
+        tokens={tokens}
+        renderToken={renderToken}
+        outputOffsetX={outputOffsetX}
+        fontSize={fontSize}
+        lineHeight={lineHeight}
+        textColor={textColor}
+        alignment={alignment}
+        previewZoom={previewZoom}
+        setPreviewZoom={setPreviewZoom}
+        usingVersioned={usingVersioned}
+        versionedGlyphs={versionedGlyphs}
+        extractedGlyphs={extractedGlyphs}
+        sourceChars={sourceChars}
+        documentSeed={documentSeed}
+        dnaNonce={dnaNonce}
+      />
     </div>
   )
 }
