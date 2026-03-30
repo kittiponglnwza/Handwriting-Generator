@@ -114,15 +114,16 @@ function GlyphSlot({
     verticalAlign: "bottom",
     flexShrink: 0,
     margin: 0,
+    marginRight: "-0.18em",
     padding: 0,
-    overflow: "hidden",
+    overflow: "visible",
     background: hlColor || "transparent",
   }
 
   const innerStyle = {
     display: "inline-flex",
     alignItems: "flex-end",
-    justifyContent: "center",
+    justifyContent: "flex-start",
     width: "100%",
     height: "100%",
     opacity,
@@ -140,7 +141,7 @@ function GlyphSlot({
               width: "100%",
               height: "100%",
               objectFit: "contain",
-              objectPosition: "center bottom",
+              objectPosition: "left bottom",
               display: "block",
               imageRendering: "auto",
               mixBlendMode: "multiply",
@@ -205,9 +206,9 @@ const W = {
 }
 
 /** ช่องตัวอักษรเทียบ fontSize — ค่าเดิม 0.72/1.3 ทำให้ตัวห่างเกินจริง */
-const GLYPH_SLOT_W_RATIO = 0.48
-const GLYPH_SLOT_H_RATIO = 1.04
-const GLYPH_SPACE_W_RATIO = 0.16
+const GLYPH_SLOT_W_RATIO = 0.3
+const GLYPH_SLOT_H_RATIO = 0.98
+const GLYPH_SPACE_W_RATIO = 0.11
 
 function glyphMetrics(fontSize) {
   const fs = Number(fontSize) || 32
@@ -220,6 +221,7 @@ function glyphMetrics(fontSize) {
 
 const LINE_PRESETS = [
   { label: "1.0", value: 1.0 },
+  { label: "1.08", value: 1.08 },
   { label: "1.2", value: 1.2 },
   { label: "1.5", value: 1.5 },
   { label: "2.0", value: 2.0 },
@@ -324,10 +326,10 @@ export default function Step5({
   )
   const [dnaNonce, setDnaNonce] = useState(0)
   const [fontSize, setFontSize] = useState(38)
-  const [lineHeight, setLineHeight] = useState(1.25)
+  const [lineHeight, setLineHeight] = useState(1.08)
   const [alignment, setAlignment] = useState("left")
   const [fontWeight, setFontWeight] = useState("normal")
-  const [paraSpacing, setParaSpacing] = useState(8)
+  const [paraSpacing, setParaSpacing] = useState(4)
   const [textColor, setTextColor] = useState("#2C2416")
   const [hlColor, setHlColor] = useState("")
   const [marginPx, setMarginPx] = useState(48)
@@ -451,7 +453,7 @@ export default function Step5({
         if (pngUse) {
           inner =
             `<img src="${pngUse}" alt="${escapeHtml(ct.ch)}" ` +
-            `style="width:100%;height:100%;object-fit:contain;object-position:center bottom;display:block;mix-blend-mode:multiply" />`
+            `style="width:100%;height:100%;object-fit:contain;object-position:left bottom;display:block;mix-blend-mode:multiply" />`
         } else if (hasSvg) {
           const vb = g.viewBox || "0 0 100 100"
           inner =
@@ -466,16 +468,16 @@ export default function Step5({
           `<span style="display:inline-block;transform:translate(${tx}px,${ty}px) rotate(${mr}deg);` +
             `transform-origin:center bottom;vertical-align:bottom">` +
             `<span style="display:inline-block;width:${slotW}px;height:${slotH}px;` +
-            `vertical-align:bottom;flex-shrink:0;${hl}">` +
-            `<span style="display:inline-flex;align-items:flex-end;justify-content:center;` +
-            `width:100%;height:100%;opacity:${op};color:${textColor};overflow:hidden">` +
+            `vertical-align:bottom;flex-shrink:0;margin-right:-0.18em;${hl}">` +
+            `<span style="display:inline-flex;align-items:flex-end;justify-content:flex-start;` +
+            `width:100%;height:100%;opacity:${op};color:${textColor};overflow:visible">` +
             `${inner}</span></span></span>`
         )
       })
 
       pieces.push(
         `<span class="hw-word" style="display:inline-flex;flex-wrap:wrap;align-items:flex-end;gap:0;row-gap:0;` +
-          `column-gap:0;max-width:100%;vertical-align:bottom;position:relative;top:${topPx}px;` +
+          `column-gap:0;max-width:100%;vertical-align:bottom;position:relative;top:${topPx}px;overflow:visible;` +
           `transform:rotate(${rotate}deg) skewX(${skewX}deg);transform-origin:left bottom;box-sizing:border-box">` +
           charPieces.join("") +
           `</span>`
@@ -672,6 +674,7 @@ body {
             maxWidth: "100%",
             verticalAlign: "bottom",
             boxSizing: "border-box",
+            overflow: "visible",
             transform: `rotate(${t.rotate.toFixed(2)}deg) skewX(${t.skewX.toFixed(2)}deg)`,
             transformOrigin: "left bottom",
             position: "relative",
