@@ -2,13 +2,19 @@ export const GRID_COLS = 6
 
 export const TEMPLATE_CODE_RE = /^HG(\d{1,4})$/i
 export const HGMETA_RE =
-  /HGMETA:page=(\d+),totalPages=(\d+),from=(\d+),to=(\d+),count=(\d+),total=(\d+)/
+  /HGMETA:page=(\d+),totalPages=(\d+),from=(\d+),to=(\d+),count=(\d+),total=(\d+)(?:,j=([A-Za-z0-9_-]+))?/
 // Optional ,j=… = base64url(JSON array of one string per cell on this page)
 export const HGQR_RE =
   /^HG:p=(\d+)\/(\d+),c=(\d+)-(\d+),n=(\d+),t=(\d+)(?:,j=([A-Za-z0-9_-]+))?$/
 
 export const TEMPLATE_INDEX_RE = /^(\d{1,4})$/
 export const MIN_TRUSTED_INDEX_TARGETS = 6
+
+// Per-cell character identity tag — written as a tiny hidden element per cell in Step 1.
+// Short strings are never split by pdfjs text extraction, unlike long base64 payloads.
+// Format: HGCHAR:N=<char>  where N is the 1-based cell index.
+// Use (.*)$ (not .+) so pdfjs-split combining chars like "HGCHAR:1=" (empty suffix) still match.
+export const HGCHAR_RE = /^HGCHAR:(\d+)=(.*)$/
 
 export const GRID_CONFIG = {
   padXRatio: 0.075,

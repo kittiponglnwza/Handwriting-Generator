@@ -48,16 +48,62 @@ export function decodeQRFromImageData(imageData, width, height) {
 export function extractCharsetIfCompleteInQr(pages) {
   if (!pages?.length) return null
   const sorted = [...pages].sort((a, b) => a.pageNumber - b.pageNumber)
-  const acc = []
-  let expectedTotal = null
+
+  const segments = []
+  let seg = []
+
+  const flushSeg = () => {
+    if (seg.length > 0) { segments.push(seg); seg = [] }
+  }
+
   for (const p of sorted) {
     const m = p.pageMeta
-    if (!m || !Number.isFinite(m.cellCount) || m.cellCount < 1) return null
-    if (expectedTotal == null && Number.isFinite(m.totalGlyphs)) expectedTotal = m.totalGlyphs
-    const c = m.charsFromQr
-    if (!Array.isArray(c) || c.length !== m.cellCount) return null
-    acc.push(...c)
+    if (!m || !Number.isFinite(m.cellCount) || m.cellCount < 1) {
+      flushSeg()
+      continue
+    }
+    if (seg.length > 0) {
+      const prev = seg[seg.length - 1].pageMeta
+      if (m.page === 1 || m.totalPages !== prev.totalPages) flushSeg()
+    }
+    seg.push(p)
   }
-  if (Number.isFinite(expectedTotal) && acc.length !== expectedTotal) return null
+  flushSeg()
+
+  if (segments.length === 0) return null
+
+  const acc = []
+  for (const segment of segments) {
+    const segChars = []
+    let expectedTotal = null
+    let broken = false
+    for (const p of segment) {
+      const m = p.pageMeta
+      if (expectedTotal == null && Number.isFinite(m.totalGlyphs)) expectedTotal = m.totalGlyphs
+
+      // Try charsFromQr first, then charsFromMeta, then charByIndex as per-page fallbacks
+      let pageChars = null
+      if (Array.isArray(m.charsFromQr) && m.charsFromQr.length === m.cellCount) {
+        pageChars = m.charsFromQr
+      } else if (Array.isArray(m.charsFromMeta) && m.charsFromMeta.length === m.cellCount) {
+        pageChars = m.charsFromMeta
+      } else if (p.charByIndex instanceof Map && p.charByIndex.size >= m.cellCount) {
+        // Reconstruct from HGCHAR tags
+        const fromTags = []
+        for (let i = m.cellFrom; i <= m.cellTo; i++) {
+          const ch = p.charByIndex.get(i - m.cellFrom + 1) ?? p.charByIndex.get(i)
+          if (ch) fromTags.push(ch)
+        }
+        if (fromTags.length === m.cellCount) pageChars = fromTags
+      }
+
+      if (!pageChars) { broken = true; break }
+      segChars.push(...pageChars)
+    }
+    if (broken || segChars.length === 0) continue
+    if (Number.isFinite(expectedTotal) && segChars.length !== expectedTotal) continue
+    acc.push(...segChars)
+  }
+
   return acc.length > 0 ? acc : null
 }
