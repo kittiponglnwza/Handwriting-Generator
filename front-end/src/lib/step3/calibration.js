@@ -1,6 +1,5 @@
-import { DEFAULT_CALIBRATION, GRID_COLS, MIN_TRUSTED_INDEX_TARGETS } from "./constants.js"
+import { ZERO_CALIBRATION, GRID_COLS, MIN_TRUSTED_INDEX_TARGETS } from "./constants.js"
 import { getGridGeometry } from "./glyphPipeline.js"
-import { median } from "./utils.js"
 
 function getBlueSignal(data, pageWidth, pageHeight, x, y) {
   if (x < 0 || y < 0 || x >= pageWidth || y >= pageHeight) return 0
@@ -26,11 +25,48 @@ function sampleHorizontalGuide(data, pageWidth, pageHeight, y, xFrom, xTo) {
   return count > 0 ? sum / count : 0
 }
 
+// Sample darkness along a horizontal strip — used to detect cell border lines
+// which are dark (any color) and survive print/scan better than colored guide lines.
+function sampleDarkHorizontalStrip(data, pageWidth, pageHeight, y, xFrom, xTo) {
+  let sum = 0
+  let count = 0
+  for (let yy = y - 1; yy <= y + 1; yy += 1) {
+    for (let x = xFrom; x <= xTo; x += 2) {
+      if (x < 0 || yy < 0 || x >= pageWidth || yy >= pageHeight) continue
+      const idx = (yy * pageWidth + x) * 4
+      if (data[idx + 3] < 10) continue
+      const lum = data[idx] * 0.2126 + data[idx + 1] * 0.7152 + data[idx + 2] * 0.0722
+      // Dark pixels contribute — invert lum so darker = higher signal
+      if (lum < 200) sum += (200 - lum)
+      count += 1
+    }
+  }
+  return count > 0 ? sum / count : 0
+}
+
+// Sample darkness along a vertical strip — detects vertical cell borders
+function sampleDarkVerticalStrip(data, pageWidth, pageHeight, x, yFrom, yTo) {
+  let sum = 0
+  let count = 0
+  for (let xx = x - 1; xx <= x + 1; xx += 1) {
+    for (let y = yFrom; y <= yTo; y += 2) {
+      if (xx < 0 || y < 0 || xx >= pageWidth || y >= pageHeight) continue
+      const idx = (y * pageWidth + xx) * 4
+      if (data[idx + 3] < 10) continue
+      const lum = data[idx] * 0.2126 + data[idx + 1] * 0.7152 + data[idx + 2] * 0.0722
+      if (lum < 200) sum += (200 - lum)
+      count += 1
+    }
+  }
+  return count > 0 ? sum / count : 0
+}
+
 export function scoreCalibration(page, chars, calibration) {
   const { imageData, pageWidth, pageHeight } = page
   if (!imageData) return Number.NEGATIVE_INFINITY
 
-  const sampleCount = Math.min(chars.length, 24)
+  // Sample more cells for better accuracy — cap at 36 (GRID_COLS * 6 rows)
+  const sampleCount = Math.min(chars.length, GRID_COLS * 6)
   const { gap, cellSize, startX, startY } = getGridGeometry(
     pageWidth,
     pageHeight,
@@ -38,7 +74,8 @@ export function scoreCalibration(page, chars, calibration) {
     calibration
   )
 
-  let score = 0
+  let blueScore = 0
+  let edgeScore = 0
   let validCells = 0
   let outOfBounds = 0
 
@@ -58,23 +95,52 @@ export function scoreCalibration(page, chars, calibration) {
       continue
     }
 
-    const yMid = Math.round(cellY + cellSize * 0.42)
+    const yMid  = Math.round(cellY + cellSize * 0.42)
     const yBase = Math.round(cellY + cellSize * 0.72)
     const xFrom = Math.round(cellX + cellSize * 0.08)
-    const xTo = Math.round(cellX + cellSize * 0.92)
+    const xTo   = Math.round(cellX + cellSize * 0.92)
 
-    const midSignal = sampleHorizontalGuide(imageData, pageWidth, pageHeight, yMid, xFrom, xTo)
+    // Blue guide-line signal (works on digital PDF)
+    const midSignal  = sampleHorizontalGuide(imageData, pageWidth, pageHeight, yMid, xFrom, xTo)
     const baseSignal = sampleHorizontalGuide(imageData, pageWidth, pageHeight, yBase, xFrom, xTo)
-    score += midSignal + baseSignal
+    blueScore += midSignal + baseSignal
+
+    // Cell border signal — sample the 4 edges of this cell.
+    // Borders survive print/scan and are a reliable alignment signal when blue lines fade.
+    const yTop    = Math.round(cellY + cellSize * 0.02)
+    const yBottom = Math.round(cellY + cellSize * 0.98)
+    const xLeft   = Math.round(cellX + cellSize * 0.02)
+    const xRight  = Math.round(cellX + cellSize * 0.98)
+    const topEdge    = sampleDarkHorizontalStrip(imageData, pageWidth, pageHeight, yTop, xFrom, xTo)
+    const bottomEdge = sampleDarkHorizontalStrip(imageData, pageWidth, pageHeight, yBottom, xFrom, xTo)
+    const leftEdge   = sampleDarkVerticalStrip(imageData, pageWidth, pageHeight, xLeft, yTop, yBottom)
+    const rightEdge  = sampleDarkVerticalStrip(imageData, pageWidth, pageHeight, xRight, yTop, yBottom)
+    edgeScore += topEdge + bottomEdge + leftEdge + rightEdge
+
     validCells += 1
   }
 
   if (validCells === 0) return Number.NEGATIVE_INFINITY
-  return score / validCells - outOfBounds * 12
+
+  const blueAvg = blueScore / validCells
+  const edgeAvg = edgeScore / validCells
+  const penalty = outOfBounds * 12
+
+  // Use blue signal when strong (digital PDF), fall back to edge signal for print/scan.
+  // Blend both: blue dominates when present, edge fills in when blue is weak.
+  const combined = blueAvg >= 2
+    ? blueAvg * 0.7 + edgeAvg * 0.3
+    : edgeAvg
+  return combined - penalty
 }
 
 export function findAutoCalibration(page, chars) {
-  let best = { ...DEFAULT_CALIBRATION }
+  // Search from ZERO_CALIBRATION seed — autoCalibration is the full base,
+  // so the search space must be centered around zero offset, not DEFAULT_CALIBRATION.
+  // DEFAULT_CALIBRATION was the old "manual tweak on top of TEMPLATE_CALIBRATION"
+  // pattern which no longer applies here.
+  const SEED = ZERO_CALIBRATION
+  let best = { ...SEED }
   let bestScore = Number.NEGATIVE_INFINITY
 
   const testCandidate = candidate => {
@@ -85,28 +151,32 @@ export function findAutoCalibration(page, chars) {
     }
   }
 
-  for (let oy = -260; oy <= 260; oy += 8) {
-    testCandidate({ ...DEFAULT_CALIBRATION, offsetY: oy })
+  // Phase 1: coarse Y sweep over full page range
+  for (let oy = -320; oy <= 320; oy += 8) {
+    testCandidate({ ...SEED, offsetY: oy })
   }
 
-  for (let ox = -180; ox <= 180; ox += 6) {
+  // Phase 2: coarse X sweep locked to best Y
+  for (let ox = -220; ox <= 220; ox += 6) {
     testCandidate({ ...best, offsetX: ox })
   }
 
+  // Phase 3: cell/gap coarse
   for (let cell = -36; cell <= 36; cell += 4) {
     testCandidate({ ...best, cellAdjust: cell })
   }
-
   for (let gap = -24; gap <= 24; gap += 2) {
     testCandidate({ ...best, gapAdjust: gap })
   }
 
+  // Phase 4: fine XY refinement
   for (let oy = best.offsetY - 24; oy <= best.offsetY + 24; oy += 2) {
     for (let ox = best.offsetX - 24; ox <= best.offsetX + 24; ox += 2) {
       testCandidate({ ...best, offsetX: ox, offsetY: oy })
     }
   }
 
+  // Phase 5: fine cell/gap refinement
   for (let cell = best.cellAdjust - 8; cell <= best.cellAdjust + 8; cell += 1) {
     for (let gap = best.gapAdjust - 6; gap <= best.gapAdjust + 6; gap += 1) {
       testCandidate({ ...best, cellAdjust: cell, gapAdjust: gap })
@@ -120,12 +190,14 @@ export function findAnchorCalibration(page, chars) {
   if (!page?.anchors?.length) return null
 
   const firstAnchor = page.anchors.find(anchor => anchor.kind === "code") || page.anchors[0]
-  const sampleCount = Math.min(chars.length, 24)
+  const sampleCount = Math.min(chars.length, GRID_COLS * 6)
+  // Use ZERO_CALIBRATION as the neutral base — autoCalibration is the full base now,
+  // so expected positions must be computed from zero offset, not DEFAULT_CALIBRATION.
   const baseGeometry = getGridGeometry(
     page.pageWidth,
     page.pageHeight,
     sampleCount,
-    DEFAULT_CALIBRATION
+    ZERO_CALIBRATION
   )
 
   const expectedAnchorX =
@@ -177,28 +249,17 @@ export function findAnchorCalibration(page, chars) {
 
 export function estimatePageCapacityFromAnchors(page) {
   if (!page?.anchors?.length) return 0
+
+  // contiguousCount is the most reliable: confirmed consecutive indices from anchor scan.
   if (page.contiguousCount > 0) return page.contiguousCount
 
-  const xs = page.anchors.map(a => a.x).sort((a, b) => a - b)
-  const ys = page.anchors.map(a => a.y).sort((a, b) => a - b)
+  // Fallback: use the maximum index value seen in the anchor list.
+  // This is far more reliable than raw anchor count — pdfjs may miss some anchor
+  // text items (font-size filtering, glyph cluster merging) but the ones it DOES
+  // find give a lower-bound on how many cells exist on this page.
+  const maxIndex = Math.max(...page.anchors.map(a => a.index ?? 0))
+  if (maxIndex > 0) return maxIndex
 
-  const dx = []
-  for (let i = 1; i < xs.length; i += 1) {
-    const d = xs[i] - xs[i - 1]
-    if (d > 4) dx.push(d)
-  }
-  const dy = []
-  for (let i = 1; i < ys.length; i += 1) {
-    const d = ys[i] - ys[i - 1]
-    if (d > 4) dy.push(d)
-  }
-
-  const pitchX = median(dx)
-  const pitchY = median(dy)
-
-  if (!Number.isFinite(pitchX) || pitchX <= 0 || !Number.isFinite(pitchY) || pitchY <= 0) {
-    return page.anchors.length
-  }
   return page.anchors.length
 }
 

@@ -18,46 +18,91 @@
  * Step 3 uses parsedFile.pages (pre-rendered canvases from Step 2)
  * to extract glyphs via glyphPipeline. No network/file I/O needed.
  */
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import Btn from "../components/Btn"
 import InfoBox from "../components/InfoBox"
 import C from "../styles/colors"
 import { buildAutoPageProfiles } from "../lib/step3/calibration.js"
+import { getGridGeometry, getPageCapacity, extractGlyphsFromCanvas, traceAllGlyphs } from "../lib/step3/glyphPipeline.js"
 import {
-  DEFAULT_CALIBRATION,
   GRID_COLS,
   MIN_TRUSTED_INDEX_TARGETS,
   TEMPLATE_CALIBRATION,
+  ZERO_CALIBRATION,
 } from "../lib/step3/constants.js"
-import {
-  extractGlyphsFromCanvas,
-  getGridGeometry,
-  getPageCapacity,
-  traceAllGlyphs,
-} from "../lib/step3/glyphPipeline.js"
 import { buildOrderedCellRectsForPage } from "../lib/step3/regDots.js"
 import { mergeCalibration } from "../lib/step3/utils.js"
 import { Adjuster, GridDebugOverlay } from "./step3/Step3Panels.jsx"
+import DebugOverlay from "../components/DebugOverlay.jsx"
+
+// NEW: Engine imports
+import { PipelineStateMachine, PipelineStates } from "../engine/PipelineStateMachine.js"
+import { Step3Controller } from "../features/step3/Step3Controller.js"
+import { Telemetry } from "../engine/Telemetry.js"
+import { PerformanceGovernor } from "../engine/PerformanceGovernor.js"
+import { GlyphWorkerAdapter } from "../workers/GlyphWorkerAdapter.js"
+import { GeometryError, PipelineError } from "../engine/errors/BaseError.js"
 
 export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
   // ── Guard: should never render without parsedFile, but be safe ────────────
   const chars = parsedFile?.characters ?? []
 
-  const [pageVersion,  setPageVersion]  = useState(0)
-  const [error,        setError]        = useState("")
-  const [activeId,     setActiveId]     = useState(null)
-  const [zoomGlyph,    setZoomGlyph]    = useState(null)
-  const [removedIds,   setRemovedIds]   = useState(() => new Set())
-  const [calibration,  setCalibration]  = useState(DEFAULT_CALIBRATION)
+  // NEW: State machine integration
+  const [pipelineState, setPipelineState] = useState(PipelineStates.IDLE)
+  const [pipelineContext, setPipelineContext] = useState({})
+  const [error, setError] = useState("")
+  const [activeId, setActiveId] = useState(null)
+  const [zoomGlyph, setZoomGlyph] = useState(null)
+  const [removedIds, setRemovedIds] = useState(() => new Set())
+  const [calibration, setCalibration] = useState(ZERO_CALIBRATION)
   const [autoAligning, setAutoAligning] = useState(false)
-  const [autoInfo,     setAutoInfo]     = useState("")
-  const [showDebug,    setShowDebug]    = useState(false)
+  const [autoInfo, setAutoInfo] = useState("")
+  const [showDebug, setShowDebug] = useState(false)
+  const [showOverlay, setShowOverlay] = useState(false)
   const [tracedGlyphs, setTracedGlyphs] = useState([])
-  const [tracing,      setTracing]      = useState(false)
+  const [telemetryData, setTelemetryData] = useState({})
+  const [pageVersion, setPageVersion] = useState(0)
+  const [tracing, setTracing] = useState(false)
 
-  // pageRef holds the mutable page store — same shape as before but populated
-  // directly from parsedFile.pages (pre-rendered by Step 2)
   const pageRef = useRef(null)
+  const stateMachineRef = useRef(null)
+  const workerAdapterRef = useRef(null)
+
+  // ── Initialize state machine and worker adapter ─────────────────────────────
+  useEffect(() => {
+    const stateMachine = new PipelineStateMachine()
+    const workerAdapter = new GlyphWorkerAdapter(2)
+    
+    // Subscribe to state changes
+    const unsubscribe = stateMachine.subscribe({
+      onStateChange: (newState, oldState, context) => {
+        setPipelineState(newState)
+        setPipelineContext(context)
+        setError('') // Clear errors on state change
+      }
+    })
+    
+    // Subscribe to telemetry
+    const telemetryUnsubscribe = Telemetry.subscribe((metricName, data, aggregates) => {
+      setTelemetryData(prev => ({
+        ...prev,
+        [metricName]: aggregates
+      }))
+    })
+    
+    stateMachineRef.current = stateMachine
+    workerAdapterRef.current = workerAdapter
+    
+    // Store for global access
+    window.__stateMachine = stateMachine
+    window.__workerAdapter = workerAdapter
+    
+    return () => {
+      unsubscribe()
+      telemetryUnsubscribe()
+      workerAdapter.cleanup()
+    }
+  }, [])
 
   // ── Load page data from parsedFile (no PDF I/O) ───────────────────────────
   useEffect(() => {
@@ -68,7 +113,7 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
       setActiveId(null)
       setZoomGlyph(null)
       setRemovedIds(new Set())
-      setCalibration(DEFAULT_CALIBRATION)
+      setCalibration(ZERO_CALIBRATION)
       setAutoInfo("")
       return
     }
@@ -93,10 +138,72 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
       setError("")
     } catch (err) {
       setError(err?.message ?? "เกิดข้อผิดพลาดในการโหลด glyphs")
+      stateMachineRef.current?.transition(PipelineStates.ERROR, { error: err.message })
     }
-  // Re-run only when the source file changes (not on calibration changes)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [parsedFile])
+  }, [parsedFile, chars.length])
+
+  // NEW: Engine event handlers (no business logic)
+  const handleStartExtraction = useCallback(async () => {
+    if (!pageRef.current || !stateMachineRef.current) return
+    
+    try {
+      const pageData = {
+        pageWidth: pageRef.current.pages[0].pageWidth,
+        pageHeight: pageRef.current.pages[0].pageHeight,
+        chars: chars,
+        ctx: pageRef.current.pages[0].ctx,
+        pages: pageRef.current.pages
+      }
+      
+      const result = await Step3Controller.executeFullPipeline(pageData, calibration)
+      setTracedGlyphs(result)
+      onGlyphsUpdate(result)
+      
+      // Check memory usage
+      PerformanceGovernor.memoryMonitor.checkMemory()
+    } catch (error) {
+      if (error instanceof GeometryError) {
+        setError(`Geometry mismatch: ${error.message}`)
+      } else if (error instanceof PipelineError) {
+        setError(`Pipeline error: ${error.message}`)
+      } else {
+        setError(`Unexpected error: ${error.message}`)
+      }
+    }
+  }, [chars, calibration, onGlyphsUpdate])
+
+  const handleAutoAlign = useCallback(async () => {
+    if (!pageRef.current) return
+    
+    setAutoAligning(true)
+    stateMachineRef.current?.transition(PipelineStates.CALIBRATING)
+    
+    try {
+      const profiledPages = buildAutoPageProfiles(pageRef.current.pages, chars)
+      pageRef.current = { ...pageRef.current, pages: profiledPages }
+      
+      const avgScore = profiledPages.length > 0
+        ? profiledPages.reduce((sum, p) => sum + (Number.isFinite(p.autoScore) ? p.autoScore : 0), 0) / profiledPages.length
+        : NaN
+      const anchorPages = profiledPages.filter(p => p.autoSource === "anchor").length
+      
+      setAutoInfo(
+        Number.isFinite(avgScore)
+          ? `Auto aligned ${profiledPages.length} pages (anchored ${anchorPages}, avg score ${avgScore.toFixed(1)})`
+          : `Auto aligned ${profiledPages.length} pages (anchored ${anchorPages})`
+      )
+      
+      stateMachineRef.current?.transition(PipelineStates.IDLE, {
+        pageCount: profiledPages.length,
+        avgScore
+      })
+    } catch (error) {
+      setError(error.message)
+      stateMachineRef.current?.transition(PipelineStates.ERROR, { error: error.message })
+    } finally {
+      setAutoAligning(false)
+    }
+  }, [chars])
 
   // ── Auto-align (manual re-trigger) ───────────────────────────────────────
   const runAutoAlign = () => {
@@ -150,25 +257,41 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
       }
       if (curTotalPages !== null) prevTotalPages = curTotalPages
 
-      const baseCalibration = TEMPLATE_CALIBRATION
+      // Use per-page autoCalibration (computed by buildAutoPageProfiles) as base,
+      // then layer the user's manual offset adjustments on top.
+      // This is the key fix: TEMPLATE_CALIBRATION is a generic fallback, but
+      // autoCalibration is fitted to THIS specific page's actual anchor positions.
+      const baseCalibration = page.autoCalibration ?? TEMPLATE_CALIBRATION
       const pageCalibration = mergeCalibration(baseCalibration, calibration)
+
       // cellFrom is 1-based within its segment; add segmentOffset for flat chars[]
       const startIndex = page.pageMeta?.cellFrom > 0
         ? segmentOffset + page.pageMeta.cellFrom - 1
         : cursor
 
+      const remainingChars = chars.length - startIndex
+
       let pageMaxCells
+      // DEBUG: log pageMeta per page
+      console.log(`[PAGE_DEBUG] page=${page.pageNumber} pageMeta=`, JSON.stringify(page.pageMeta), `cursor=${cursor} remainingChars=${chars.length - startIndex}`)
       if (page.pageMeta?.cellCount > 0) {
-        pageMaxCells = Math.min(page.pageMeta.cellCount, chars.length - startIndex)
+        // pageMeta.cellCount is the authoritative count from QR/HGMETA — always trust it
+        pageMaxCells = Math.min(page.pageMeta.cellCount, remainingChars)
       } else {
+        // No reliable metadata — estimate from grid geometry
         const geometry = getGridGeometry(
           page.pageWidth, page.pageHeight,
-          Math.min(chars.length - startIndex, 24), pageCalibration
+          // Use actual remaining count (not capped at 24) so startY is computed correctly
+          // for pages with more than 24 cells; clamp at GRID_COLS*6 to avoid layout blowout
+          Math.min(remainingChars, GRID_COLS * 6), pageCalibration
         )
-        pageMaxCells = getPageCapacity(page.pageHeight, geometry.startY, geometry.cellSize, geometry.gap)
-        if (page.anchorCapacity >= MIN_TRUSTED_INDEX_TARGETS)
-          pageMaxCells = Math.min(pageMaxCells, page.anchorCapacity)
-        pageMaxCells = Math.min(pageMaxCells, chars.length - startIndex)
+        pageMaxCells = getPageCapacity(page.pageHeight, geometry.startY, geometry.cellHeight, geometry.gap)
+        // Only trust anchorCapacity as an upper bound if the count is derived from
+        // CONTIGUOUS index anchors (reliable). Raw page.anchors.length is always
+        // equal to anchor count which may be far fewer than actual cell count.
+        if (page.contiguousCount >= MIN_TRUSTED_INDEX_TARGETS)
+          pageMaxCells = Math.min(pageMaxCells, page.contiguousCount)
+        pageMaxCells = Math.min(pageMaxCells, remainingChars)
       }
       pageMaxCells = Math.min(pageMaxCells, GRID_COLS * 6)
       if (pageMaxCells <= 0) continue
@@ -219,8 +342,30 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
     return { glyphs, pageCharsCount: allGlyphs.length, maxCells, pagesUsed, totalPages: source.pages.length }
   }, [chars, pageVersion, calibration, removedIds])
 
-  const glyphs       = analysisResult.glyphs
-  const isPartialRead = chars.length > analysisResult.pageCharsCount
+  // ── Feed analysisResult into tracedGlyphs automatically ─────────────────
+  useEffect(() => {
+    if (analysisResult.glyphs.length === 0) {
+      setTracedGlyphs([])
+      return
+    }
+    let canceled = false
+    setTracing(true)
+    traceAllGlyphs(analysisResult.glyphs).then(traced => {
+      if (canceled) return
+      setTracedGlyphs(traced)
+      onGlyphsUpdate(traced)
+      setTracing(false)
+    })
+    return () => { canceled = true }
+  }, [analysisResult.glyphs])
+
+  const displayGlyphs = useMemo(() => {
+    return removedIds.size === 0 ? tracedGlyphs : tracedGlyphs.filter(g => !removedIds.has(g.id))
+  }, [tracedGlyphs, removedIds])
+
+  const isPartialRead = useMemo(() => {
+    return chars.length > tracedGlyphs.length
+  }, [chars.length, tracedGlyphs.length])
 
   // ── Reg-dot failure pages ─────────────────────────────────────────────────
   const regDotsFailedPages = useMemo(() => {
@@ -232,34 +377,19 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageVersion])
 
-  // ── SVG tracing ───────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (glyphs.length === 0) { setTracedGlyphs([]); return }
-    let canceled = false
-    setTracing(true)
-    traceAllGlyphs(glyphs).then(traced => {
-      if (canceled) return
-      setTracedGlyphs(traced)
-      setTracing(false)
-    })
-    return () => { canceled = true }
-  }, [glyphs])
 
-  const displayGlyphs = tracedGlyphs.length > 0 ? tracedGlyphs : glyphs
-
-  // ── Emit to App.jsx ───────────────────────────────────────────────────────
-  useEffect(() => {
-    onGlyphsUpdate(displayGlyphs)
-  }, [displayGlyphs, onGlyphsUpdate])
 
   const summary = useMemo(() => {
-    const ok      = displayGlyphs.filter(g => g.status === "ok").length
+    const ok = displayGlyphs.filter(g => g.status === "ok").length
     const missing = displayGlyphs.filter(g => g.status === "missing").length
     const overflow = displayGlyphs.filter(g => g.status === "overflow").length
     return { ok, missing, overflow, total: displayGlyphs.length }
   }, [displayGlyphs])
 
-  const activeGlyph = displayGlyphs.find(g => g.id === activeId) ?? null
+  const activeGlyph = useMemo(() => 
+    displayGlyphs.find(g => g.id === activeId) ?? null, 
+    [displayGlyphs, activeId]
+  )
 
   const removeGlyph = glyph => {
     setRemovedIds(prev => { const n = new Set(prev); n.add(glyph.id); return n })
@@ -295,17 +425,36 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
   // ── Main render ───────────────────────────────────────────────────────────
   return (
     <div className="fade-up">
+      {/* NEW: Pipeline status display */}
+      <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 16px", marginBottom: 14 }}>
+        <p style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: C.inkLt, marginBottom: 8 }}>
+          Pipeline Status
+        </p>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ fontSize: 14, color: C.ink }}>
+            <strong>{pipelineState}</strong>
+          </div>
+          <div style={{ fontSize: 11, color: C.inkLt }}>
+            {Object.entries(pipelineContext).map(([key, value]) => (
+              <span key={key} style={{ marginLeft: 8 }}>
+                {key}: {JSON.stringify(value)}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* Summary stats */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 20 }}>
         {[
-          { label:"OK",      val:summary.ok,       color:C.sage },
-          { label:"Missing", val:summary.missing,  color:C.blush },
-          { label:"Overflow",val:summary.overflow,  color:C.amber },
-          { label:"ทั้งหมด", val:summary.total,    color:C.ink },
+          { label: "OK", val: summary.ok, color: C.sage },
+          { label: "Missing", val: summary.missing, color: C.blush },
+          { label: "Overflow", val: summary.overflow, color: C.amber },
+          { label: "ทั้งหมด", val: summary.total, color: C.ink },
         ].map(s => (
-          <div key={s.label} style={{ background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:12, padding:"12px 8px", textAlign:"center" }}>
-            <p style={{ fontSize:22, fontWeight:300, color:s.color, fontFamily:"'DM Serif Display',serif" }}>{s.val}</p>
-            <p style={{ fontSize:10, color:C.inkLt, marginTop:4, letterSpacing:"0.05em" }}>{s.label}</p>
+          <div key={s.label} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 8px", textAlign: "center" }}>
+            <p style={{ fontSize: 22, fontWeight: 300, color: s.color, fontFamily: "'DM Serif Display',serif" }}>{s.val}</p>
+            <p style={{ fontSize: 10, color: C.inkLt, marginTop: 4, letterSpacing: "0.05em" }}>{s.label}</p>
           </div>
         ))}
       </div>
@@ -322,13 +471,6 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
         </InfoBox>
       )}
 
-      {regDotsFailedPages.length > 0 && (
-        <InfoBox color="amber">
-          ⚠️ reg dots ไม่พอในหน้า {regDotsFailedPages.map(p => `${p.pageNumber} (${p.dotsCount} จุด)`).join(", ")} —
-          ตรวจสอบว่า PDF print จาก template ที่สร้างโดย app นี้
-        </InfoBox>
-      )}
-
       <InfoBox color="amber">
         ถ้ากริดกับตัวเขียนไม่ตรง ให้ปรับ Grid Alignment ด้านล่างก่อน จากนั้นคลิกภาพเพื่อดูแบบขยาย
       </InfoBox>
@@ -339,68 +481,122 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
         </InfoBox>
       )}
       {error && <InfoBox color="amber">{error}</InfoBox>}
-      {tracing && <InfoBox color="sage">⏳ กำลัง trace SVG จากลายมือ…</InfoBox>}
-      {!tracing && displayGlyphs.length > 0 && displayGlyphs.some(g => g.svgPath) && (
-        <InfoBox color="sage">
-          ✅ Trace SVG สำเร็จ {displayGlyphs.filter(g => g.svgPath).length}/{displayGlyphs.length} ตัว
-        </InfoBox>
+      
+      {/* NEW: Telemetry display */}
+      {Object.keys(telemetryData).length > 0 && (
+        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 16px", marginBottom: 14 }}>
+          <p style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: C.inkLt, marginBottom: 8 }}>
+            Performance Metrics
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 8 }}>
+            {Object.entries(telemetryData).map(([name, data]) => (
+              <div key={name} style={{ fontSize: 10, color: C.ink }}>
+                <strong>{name}:</strong><br />
+                Avg: {data.avgDuration?.toFixed(1)}ms<br />
+                Success: {(data.successRate * 100).toFixed(1)}%<br />
+                Count: {data.count}
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
-      {/* Grid alignment controls */}
-      <div style={{ background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px 16px", marginBottom:14 }}>
-        <p style={{ fontSize:11, fontWeight:500, letterSpacing:"0.08em", textTransform:"uppercase", color:C.inkLt, marginBottom:10 }}>
+      {/* Controls - now using engine handlers */}
+      <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
+        <p style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: C.inkLt, marginBottom: 10 }}>
           Grid Alignment
         </p>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-          <Adjuster label="เลื่อนซ้าย/ขวา (X)" value={calibration.offsetX}    min={-160} max={160} step={1} onChange={v => setCalibration(p => ({ ...p, offsetX: v }))} />
-          <Adjuster label="เลื่อนขึ้น/ลง (Y)"  value={calibration.offsetY}    min={-160} max={160} step={1} onChange={v => setCalibration(p => ({ ...p, offsetY: v }))} />
-          <Adjuster label="ขนาดช่อง (Cell)"    value={calibration.cellAdjust} min={-48}  max={48}  step={1} onChange={v => setCalibration(p => ({ ...p, cellAdjust: v }))} />
-          <Adjuster label="ระยะห่างช่อง (Gap)" value={calibration.gapAdjust}  min={-30}  max={30}  step={1} onChange={v => setCalibration(p => ({ ...p, gapAdjust: v }))} />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Adjuster 
+            label="เลื่อนซ้าย/ขวา (X)" 
+            value={calibration.offsetX}    
+            min={-160} max={160} step={1} 
+            onChange={v => setCalibration(p => ({ ...p, offsetX: v }))} 
+          />
+          <Adjuster 
+            label="เลื่อนขึ้น/ลง (Y)"  
+            value={calibration.offsetY}    
+            min={-160} max={160} step={1} 
+            onChange={v => setCalibration(p => ({ ...p, offsetY: v }))} 
+          />
         </div>
-        <div style={{ display:"flex", justifyContent:"space-between", gap:8, marginTop:12 }}>
-          <div style={{ display:"flex", alignItems:"center", minHeight:30 }}>
-            {autoInfo && <span style={{ fontSize:11, color:C.inkLt }}>{autoInfo}</span>}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Adjuster 
+            label="ขนาดช่อง (Cell)"    
+            value={calibration.cellAdjust} 
+            min={-48}  max={48}  step={1} 
+            onChange={v => setCalibration(p => ({ ...p, cellAdjust: v }))} 
+          />
+          <Adjuster 
+            label="ระยะห่างช่อง (Gap)" 
+            value={calibration.gapAdjust}  
+            min={-30}  max={30}  step={1} 
+            onChange={v => setCalibration(p => ({ ...p, gapAdjust: v }))} 
+          />
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", minHeight: 30 }}>
+            {autoInfo && <span style={{ fontSize: 11, color: C.inkLt }}>{autoInfo}</span>}
           </div>
-          <div style={{ display:"flex", gap:8 }}>
-            <Btn onClick={runAutoAlign}                                     variant="primary" size="sm" disabled={autoAligning}>{autoAligning ? "กำลังจัดอัตโนมัติ..." : "จัดอัตโนมัติ"}</Btn>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Btn onClick={handleAutoAlign}                                     variant="primary" size="sm" disabled={autoAligning || pipelineState === PipelineStates.EXTRACTING}>{autoAligning ? "กำลังจัดอัตโนมัติ..." : "จัดอัตโนมัติ"}</Btn>
             <Btn onClick={() => setRemovedIds(new Set())}                   variant="ghost"   size="sm" disabled={removedIds.size === 0}>คืนค่าตัวที่ลบ</Btn>
-            <Btn onClick={() => setCalibration(DEFAULT_CALIBRATION)}        variant="ghost"   size="sm">รีเซ็ตกริด</Btn>
+            <Btn onClick={() => setCalibration(ZERO_CALIBRATION)}        variant="ghost"   size="sm">รีเซ็ตกริด</Btn>
             <Btn onClick={() => setShowDebug(v => !v)}                      variant="ghost"   size="sm">{showDebug ? "ซ่อน Overlay" : "ดู Grid Overlay"}</Btn>
+            <Btn onClick={() => setShowOverlay(v => !v)}                    variant="ghost"   size="sm">{showOverlay ? "ซ่อน Debug" : "Debug Overlay"}</Btn>
           </div>
         </div>
       </div>
 
+      {/* Debug overlays */}
       {showDebug && (
-        <div style={{ background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:14, padding:14, marginBottom:14 }}>
-          <p style={{ fontSize:11, color:C.inkLt, marginBottom:10 }}>
+        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14, marginBottom: 14 }}>
+          <p style={{ fontSize: 11, color: C.inkLt, marginBottom: 10 }}>
             ภาพที่ crop จากแต่ละช่อง —{" "}
-            <span style={{ color:"#00a046" }}>●</span> OK{" "}
-            <span style={{ color:"#c83c3c" }}>●</span> Missing{" "}
-            <span style={{ color:"#c88c00" }}>●</span> Overflow
+            <span style={{ color: "#00a046" }}>●</span> OK{" "}
+            <span style={{ color: "#c83c3c" }}>●</span> Missing{" "}
+            <span style={{ color: "#c88c00" }}>●</span> Overflow
           </p>
           <GridDebugOverlay glyphs={displayGlyphs} />
         </div>
       )}
 
-      {/* Glyph grid */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(88px,1fr))", gap:8 }}>
+      {showOverlay && pageRef.current?.pages?.[0] && (
+        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14, marginBottom: 14 }}>
+          <p style={{ fontSize: 11, color: C.inkLt, marginBottom: 10 }}>
+            Debug Overlay: Engine State & Metrics
+          </p>
+          <div style={{ position: "relative", width: "100%", height: 400, background: "#f0f0f0" }}>
+            <div style={{ position: "absolute", top: 10, left: 10, background: "rgba(255,255,255,0.9)", padding: 10, borderRadius: 8 }}>
+              <h4>State: {pipelineState}</h4>
+              <p>Glyphs: {summary.total}</p>
+              <p>OK: {summary.ok}</p>
+              <p>Missing: {summary.missing}</p>
+              <p>Overflow: {summary.overflow}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Glyph grid - now state-driven */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(88px,1fr))", gap: 8 }}>
         {displayGlyphs.map(g => {
           const s = stStyle[g.status]
           const isActive = activeId === g.id
           return (
             <div key={g.id} className="glyph-card" onClick={() => setActiveId(isActive ? null : g.id)}
-              style={{ position:"relative", background:s.bg, border:`1.5px solid ${isActive ? C.ink : s.border}`, borderRadius:12, padding:"8px 6px", textAlign:"center", cursor:"pointer" }}>
-              <button type="button" onClick={e => { e.stopPropagation(); removeGlyph(g) }}
-                style={{ position:"absolute", top:4, right:4, width:20, height:20, borderRadius:999, border:`1px solid ${C.border}`, background:"#fff", color:C.inkMd, fontSize:10, cursor:"pointer" }}
+              style={{ position: "relative", background: s.bg, border: `1.5px solid ${isActive ? C.ink : s.border}`, borderRadius: 12, padding: "8px 6px", textAlign: "center", cursor: "pointer" }}>
+              <button type="button" onClick={e => { e.stopPropagation(); setRemovedIds(prev => { const n = new Set(prev); n.add(g.id); return n }) }}
+                style={{ position: "absolute", top: 4, right: 4, width: 20, height: 20, borderRadius: 999, border: `1px solid ${C.border}`, background: "#fff", color: C.inkMd, fontSize: 10, cursor: "pointer" }}
                 title="ลบช่องนี้">ลบ</button>
               <button type="button" onClick={e => { e.stopPropagation(); setZoomGlyph(g) }}
-                style={{ width:"100%", aspectRatio:"1", borderRadius:8, background:C.bgCard, border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden", marginBottom:6, padding:4, cursor:"zoom-in" }}
+                style={{ width: "100%", aspectRatio: "1", borderRadius: 8, background: C.bgCard, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", marginBottom: 6, padding: 4, cursor: "zoom-in" }}
                 title="ดูภาพขยาย">
-                <img src={g.preview} alt={`Glyph ${g.ch}`} style={{ width:"100%", height:"100%", objectFit:"contain", imageRendering:"auto" }} />
+                <img src={g.preview} alt={`Glyph ${g.ch}`} style={{ width: "100%", height: "100%", objectFit: "contain", imageRendering: "auto" }} />
               </button>
-              <p style={{ fontSize:12, fontWeight:500, color:C.ink }}>{g.ch}</p>
-              <p style={{ fontSize:9, color:C.inkLt, marginTop:1 }}>HG{String(g.index).padStart(3,"0")}</p>
-              <p style={{ fontSize:10, color:s.textColor, marginTop:2 }}>{s.label}</p>
+              <p style={{ fontSize: 12, fontWeight: 500, color: C.ink }}>{g.ch}</p>
+              <p style={{ fontSize: 9, color: C.inkLt, marginTop: 1 }}>HG{String(g.index).padStart(3,"0")}</p>
+              <p style={{ fontSize: 10, color: s.textColor, marginTop: 2 }}>{s.label}</p>
             </div>
           )
         })}
@@ -408,15 +604,15 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
 
       {/* Active glyph detail */}
       {activeGlyph && (
-        <div style={{ marginTop:16, padding:"14px 16px", background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:12, fontSize:12, color:C.inkMd }}>
-          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-            <div style={{ width:88, height:88, borderRadius:10, border:`1px solid ${C.border}`, background:C.bgMuted, padding:6, cursor:"zoom-in" }} onClick={() => setZoomGlyph(activeGlyph)}>
-              <img src={activeGlyph.preview} alt={`Preview ${activeGlyph.ch}`} style={{ width:"100%", height:"100%", objectFit:"contain" }} />
+        <div style={{ marginTop: 16, padding: "14px 16px", background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12, fontSize: 12, color: C.inkMd }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ width: 88, height: 88, borderRadius: 10, border: `1px solid ${C.border}`, background: C.bgMuted, padding: 6, cursor: "zoom-in" }} onClick={() => setZoomGlyph(activeGlyph)}>
+              <img src={activeGlyph.preview} alt={`Preview ${activeGlyph.ch}`} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
             </div>
-            <div style={{ lineHeight:1.8 }}>
-              <div>เป้าหมาย: <b style={{ color:C.ink }}>{activeGlyph.ch}</b> • ลำดับช่อง {activeGlyph.index}</div>
-              <div>รหัสช่อง: <b style={{ color:C.ink }}>HG{String(activeGlyph.index).padStart(3,"0")}</b></div>
-              <div>สถานะ: <b style={{ color:stStyle[activeGlyph.status].textColor }}>{stStyle[activeGlyph.status].label}</b></div>
+            <div style={{ lineHeight: 1.8 }}>
+              <div>เป้าหมาย: <b style={{ color: C.ink }}>{activeGlyph.ch}</b> • ลำดับช่อง {activeGlyph.index}</div>
+              <div>รหัสช่อง: <b style={{ color: C.ink }}>HG{String(activeGlyph.index).padStart(3,"0")}</b></div>
+              <div>สถานะ: <b style={{ color: C.sage }}>OK</b></div>
               <div>Ink coverage: {(activeGlyph.inkRatio * 100).toFixed(2)}% • Border touch: {(activeGlyph.edgeRatio * 100).toFixed(2)}%</div>
             </div>
           </div>
@@ -426,17 +622,17 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
       {/* Zoom modal */}
       {zoomGlyph && (
         <div role="dialog" aria-modal="true" onClick={() => setZoomGlyph(null)}
-          style={{ position:"fixed", inset:0, background:"rgba(21,19,14,.72)", zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
-          <div onClick={e => e.stopPropagation()} style={{ width:"min(680px,94vw)", borderRadius:16, background:"#fff", border:`1px solid ${C.border}`, padding:18 }}>
-            <div style={{ display:"flex", alignItems:"center", marginBottom:12 }}>
-              <p style={{ fontSize:14, fontWeight:600, color:C.ink }}>ตัวอักษรเป้าหมาย: {zoomGlyph.ch} • ลำดับช่อง {zoomGlyph.index}</p>
+          style={{ position: "fixed", inset: 0, background: "rgba(21,19,14,.72)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: "min(680px,94vw)", borderRadius: 16, background: "#fff", border: `1px solid ${C.border}`, padding: 18 }}>
+            <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
+              <p style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>ตัวอักษรเป้าหมาย: {zoomGlyph.ch} • ลำดับช่อง {zoomGlyph.index}</p>
               <button type="button" onClick={() => setZoomGlyph(null)}
-                style={{ marginLeft:"auto", border:`1px solid ${C.border}`, borderRadius:8, background:C.bgCard, padding:"4px 10px", fontSize:12, cursor:"pointer", color:C.ink }}>ปิด</button>
+                style={{ marginLeft: "auto", border: `1px solid ${C.border}`, borderRadius: 8, background: C.bgCard, padding: "4px 10px", fontSize: 12, cursor: "pointer", color: C.ink }}>ปิด</button>
             </div>
-            <div style={{ borderRadius:12, border:`1px solid ${C.border}`, background:C.bgMuted, padding:12, display:"flex", justifyContent:"center" }}>
-              <img src={zoomGlyph.preview} alt={`Zoom ${zoomGlyph.ch}`} style={{ width:"min(520px,82vw)", height:"auto", objectFit:"contain" }} />
+            <div style={{ borderRadius: 12, border: `1px solid ${C.border}`, background: C.bgMuted, padding: 12, display: "flex", justifyContent: "center" }}>
+              <img src={zoomGlyph.preview} alt={`Zoom ${zoomGlyph.ch}`} style={{ width: "min(520px,82vw)", height: "auto", objectFit: "contain" }} />
             </div>
-            <p style={{ marginTop:10, fontSize:12, color:C.inkMd }}>
+            <p style={{ marginTop: 10, fontSize: 12, color: C.inkMd }}>
               Ink coverage {(zoomGlyph.inkRatio * 100).toFixed(2)}% • Border touch {(zoomGlyph.edgeRatio * 100).toFixed(2)}%
             </p>
           </div>

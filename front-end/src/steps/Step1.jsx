@@ -57,9 +57,20 @@ const ensureQrLib = () => {
 const makeQrDataUrl = async (text) => {
   try {
     await ensureQrLib()
-    const qr = window.qrcode(0, "M")
-    qr.addData(text)
-    qr.make()
+    // Try auto-detect first (typeNumber=0), then explicit sizes if it fails.
+    // qrcode-generator throws when typeNumber=0 can't fit the data — catch and retry.
+    let qr = null
+    for (const typeNum of [0, 10, 15, 20, 25, 30, 40]) {
+      try {
+        qr = window.qrcode(typeNum, "M")
+        qr.addData(text, "Byte")
+        qr.make()
+        break
+      } catch {
+        qr = null
+      }
+    }
+    if (!qr) return null
     const size = qr.getModuleCount()
     const scale = 4
     const dim = size * scale
@@ -170,7 +181,7 @@ async function generateTemplatePdfByGroup(selectedSet, groups) {
             ${qrImg}
           </div>`
 
-        const metaTag = `<p style="font-size:0px;color:transparent;user-select:none">HGMETA:page=${pageIndex+1},totalPages=${pageCount},from=${cellFrom},to=${cellTo},count=${pageCellCount},total=${chars.length},j=${encodeHgQrCharsPayload(pageChars)}</p>`
+        const metaTag = `<p style="font-size:1px;color:transparent;user-select:none">HGMETA:page=${pageIndex+1},totalPages=${pageCount},from=${cellFrom},to=${cellTo},count=${pageCellCount},total=${chars.length},j=${encodeHgQrCharsPayload(pageChars)}</p>`
 
         return `<section class="sheet">${header}<div class="grid">${rows.join("")}</div><p class="footer">${escapeHtml(group.label)} • ${pageIndex+1}/${pageCount}</p>${metaTag}</section>`
       })
@@ -196,7 +207,7 @@ async function generateTemplatePdfByGroup(selectedSet, groups) {
       .footer{margin-top:5mm;text-align:right;font-size:10px;color:#5C7694;font-family:"DM Sans",Arial,sans-serif}
       .page-qr{position:absolute;top:4mm;right:0;width:18mm;height:18mm;image-rendering:pixelated}
       .page-qr-fallback{position:absolute;top:4mm;right:0;font-size:6px;color:#888}
-      .hgchar-tag{position:absolute;font-size:0px;color:transparent;pointer-events:none;user-select:none;margin:0;padding:0;line-height:0}
+      .hgchar-tag{position:absolute;font-size:1px;color:transparent;pointer-events:none;user-select:none;margin:0;padding:0;line-height:0}
       .sheet{break-inside:avoid;page-break-inside:avoid;break-after:page;page-break-after:always}
       .sheet:last-of-type{break-after:auto;page-break-after:auto}
     </style></head><body>
@@ -270,7 +281,7 @@ async function generateTemplatePdf(chars) {
           ${qrImg}
         </div>`
 
-      const metaTag = `<p style="font-size:0px;color:transparent;user-select:none">HGMETA:page=${pageIndex+1},totalPages=${pageCount},from=${cellFrom},to=${cellTo},count=${pageCellCount},total=${chars.length},j=${encodeHgQrCharsPayload(pageChars)}</p>`
+      const metaTag = `<p style="font-size:1px;color:transparent;user-select:none">HGMETA:page=${pageIndex+1},totalPages=${pageCount},from=${cellFrom},to=${cellTo},count=${pageCellCount},total=${chars.length},j=${encodeHgQrCharsPayload(pageChars)}</p>`
 
       return `<section class="sheet">${header}<div class="grid">${rows.join("")}</div><p class="footer">Practice sheet • Trace over the dotted shape • ${pageIndex+1}/${pageCount}</p>${metaTag}</section>`
     })
@@ -294,7 +305,7 @@ async function generateTemplatePdf(chars) {
       .footer{margin-top:5mm;text-align:right;font-size:10px;color:#5C7694;font-family:"DM Sans",Arial,sans-serif}
       .page-qr{position:absolute;top:4mm;right:0;width:18mm;height:18mm;image-rendering:pixelated}
       .page-qr-fallback{position:absolute;top:4mm;right:0;font-size:6px;color:#888}
-      .hgchar-tag{position:absolute;font-size:0px;color:transparent;pointer-events:none;user-select:none;margin:0;padding:0;line-height:0}
+      .hgchar-tag{position:absolute;font-size:1px;color:transparent;pointer-events:none;user-select:none;margin:0;padding:0;line-height:0}
       .sheet{break-inside:avoid;page-break-inside:avoid;break-after:page;page-break-after:always}
       .sheet:last-of-type{break-after:auto;page-break-after:auto}
     </style></head><body>

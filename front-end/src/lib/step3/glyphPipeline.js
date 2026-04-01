@@ -1,4 +1,4 @@
-import { GRID_COLS, GRID_CONFIG } from "./constants.js"
+import { GRID_COLS, GRID_GEOMETRY } from "./constants.js"
 import { clamp } from "./utils.js"
 
 export function classifyGlyph(imageData, width, height) {
@@ -81,28 +81,35 @@ export function buildInkOnlyImageData(imageData, width, height) {
 }
 
 export function getGridGeometry(pageWidth, pageHeight, charsLength, calibration) {
-  const baseGap = Math.max(6, pageWidth * GRID_CONFIG.gapRatio)
-  const gap = Math.max(2, baseGap + calibration.gapAdjust)
+  // STEP 2 — REMOVE DYNAMIC CELL CALCULATION
+  // Use exact values from GRID_GEOMETRY, no estimation
+  
+  const cellWidth = GRID_GEOMETRY.cellWidthPx + (calibration.cellAdjust || 0)
+  const cellHeight = GRID_GEOMETRY.cellHeightPx + (calibration.cellAdjust || 0)
+  const gap = GRID_GEOMETRY.gapPx + (calibration.gapAdjust || 0)
+  
+  // Calculate exact start positions
+  const startX = GRID_GEOMETRY.startX + (calibration.offsetX || 0)
+  const startY = GRID_GEOMETRY.startY + (calibration.offsetY || 0)
 
-  const workWidth = pageWidth * (1 - GRID_CONFIG.padXRatio * 2)
-  const rows = Math.max(1, Math.ceil(charsLength / GRID_COLS))
-  const baseCellSize = (workWidth - baseGap * (GRID_COLS - 1)) / GRID_COLS
-  const cellSize = Math.max(24, baseCellSize + calibration.cellAdjust)
-  const gridHeight = rows * cellSize + (rows - 1) * gap
+  // DEBUG: Log geometry values
+  console.log('[GEOMETRY_DEBUG] Using GRID_GEOMETRY values:')
+  console.log('  cellWidthPx:', GRID_GEOMETRY.cellWidthPx)
+  console.log('  cellHeightPx:', GRID_GEOMETRY.cellHeightPx)
+  console.log('  gapPx:', GRID_GEOMETRY.gapPx)
+  console.log('  startX:', GRID_GEOMETRY.startX)
+  console.log('  startY:', GRID_GEOMETRY.startY)
+  console.log('  Calibration:', calibration)
+  console.log('  Final cellWidth:', cellWidth)
+  console.log('  Final cellHeight:', cellHeight)
+  console.log('  Final gap:', gap)
 
-  const baseStartX = pageWidth * GRID_CONFIG.padXRatio
-  const desiredStartY = pageHeight * GRID_CONFIG.topRatio
-  const maxStartY = pageHeight - pageHeight * GRID_CONFIG.bottomRatio - gridHeight
-  const baseStartY = Math.max(0, Math.min(desiredStartY, maxStartY))
-
-  const startX = baseStartX + calibration.offsetX
-  const startY = baseStartY + calibration.offsetY
-
-  return { gap, cellSize, startX, startY }
+  return { gap, cellWidth, cellHeight, startX, startY }
 }
 
 export function getPageCapacity(pageHeight, startY, cellSize, gap) {
-  const usableBottom = pageHeight * (1 - GRID_CONFIG.bottomRatio)
+  // Use exact bottom calculation from GRID_GEOMETRY
+  const usableBottom = pageHeight - GRID_GEOMETRY.marginPx - 50  // ~footer space
   const rows = Math.max(1, Math.floor((usableBottom - startY + gap) / (cellSize + gap)))
   return rows * GRID_COLS
 }
@@ -207,11 +214,12 @@ async function traceGlyphAsync(inkCanvas, width, height) {
 export function extractGlyphsFromCanvas({ ctx, pageWidth, pageHeight, chars, calibration, cellRects }) {
   const useRegDots = cellRects && cellRects.length >= chars.length
 
-  let gap, cellSize, startX, startY
+  let gap, cellWidth, cellHeight, startX, startY
   if (!useRegDots) {
     const geom = getGridGeometry(pageWidth, pageHeight, chars.length, calibration)
     gap = geom.gap
-    cellSize = geom.cellSize
+    cellWidth = geom.cellWidth
+    cellHeight = geom.cellHeight
     startX = geom.startX
     startY = geom.startY
   }
@@ -220,22 +228,35 @@ export function extractGlyphsFromCanvas({ ctx, pageWidth, pageHeight, chars, cal
     const row = Math.floor(i / GRID_COLS)
     const col = i % GRID_COLS
     let cellX, cellY, cellW, cellH
+    
     if (useRegDots && cellRects[i]) {
       const rect = cellRects[i]
-      const insetR = Math.round(Math.min(rect.w, rect.h) * GRID_CONFIG.insetRatio)
+      // STEP 3 — FIX CROP BOX - Use reduced inset
+      const insetR = Math.round(Math.min(rect.w, rect.h) * GRID_GEOMETRY.insetRatio)
       cellX = clamp(Math.round(rect.x) + insetR, 0, pageWidth - 1)
       cellY = clamp(Math.round(rect.y) + insetR, 0, pageHeight - 1)
       cellW = Math.max(20, Math.round(rect.w) - insetR * 2)
       cellH = Math.max(20, Math.round(rect.h) - insetR * 2)
     } else {
-      const inset = Math.round(cellSize * GRID_CONFIG.insetRatio)
-      cellX = clamp(Math.round(startX + col * (cellSize + gap)) + inset, 0, pageWidth - 1)
-      cellY = clamp(Math.round(startY + row * (cellSize + gap)) + inset, 0, pageHeight - 1)
-      cellW = Math.max(20, Math.round(cellSize - inset * 2))
-      cellH = cellW
+      // STEP 3 — FIX CROP BOX - Exact grid positioning
+      const inset = Math.round(Math.min(cellWidth, cellHeight) * GRID_GEOMETRY.insetRatio)
+      cellX = clamp(Math.round(startX + col * (cellWidth + gap)) + inset, 0, pageWidth - 1)
+      cellY = clamp(Math.round(startY + row * (cellHeight + gap)) + inset, 0, pageHeight - 1)
+      cellW = Math.max(20, Math.round(cellWidth - inset * 2))
+      cellH = Math.max(20, Math.round(cellHeight - inset * 2))
     }
+    
     const cropW = Math.min(cellW, pageWidth - cellX)
     const cropH = Math.min(cellH, pageHeight - cellY)
+
+    // STEP 4 — DEBUG OVERLAY - Log crop rectangle
+    if (i < 3) {  // Log first 3 cells only
+      console.log(`[CROP_DEBUG] Cell ${i} (${ch}):`)
+      console.log(`  Expected Grid: x=${Math.round(startX + col * (cellWidth + gap))}, y=${Math.round(startY + row * (cellHeight + gap))}, w=${cellWidth}, h=${cellHeight}`)
+      console.log(`  Actual Crop: x=${cellX}, y=${cellY}, w=${cropW}, h=${cropH}`)
+      console.log(`  Inset: ${Math.round(Math.min(cellWidth, cellHeight) * GRID_GEOMETRY.insetRatio)}px (${(GRID_GEOMETRY.insetRatio * 100).toFixed(1)}%)`)
+      console.log(`  Gap: ${gap}px, Calibration: offsetX=${calibration.offsetX}, offsetY=${calibration.offsetY}`)
+    }
 
     const imageData = ctx.getImageData(cellX, cellY, cropW, cropH)
     const cropCanvas = document.createElement("canvas")

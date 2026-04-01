@@ -20,8 +20,11 @@ export function detectRegDots(imageData, pageWidth, pageHeight) {
         b = data[idx + 2],
         a = data[idx + 3]
       if (a < 80) continue
-      if (b < 150 || b - r < 80 || b - g < 40) continue
-      if (r > 150 && r - b > 50) continue
+      // Loosened threshold: accept any pixel where blue clearly dominates
+      // Original: b < 150 || b - r < 80 || b - g < 40 (too strict for print/scan)
+      // New:      b < 100 || b - r < 40 || b - g < 20 (handles color shift after scanning)
+      if (b < 100 || b - r < 40 || b - g < 20) continue
+      if (r > 180 && r - b > 30) continue  // reject warm/red pixels
 
       let minX = x,
         maxX = x,
@@ -40,8 +43,9 @@ export function detectRegDots(imageData, pageWidth, pageHeight) {
           b2 = data[i2 + 2],
           a2 = data[i2 + 3]
         if (a2 < 60) continue
-        if (b2 < 120 || b2 - r2 < 40 || b2 - g2 < 15) continue
-        if (r2 > 150 && r2 - b2 > 30) continue
+        // Looser flood-fill threshold too
+        if (b2 < 80 || b2 - r2 < 20 || b2 - g2 < 10) continue
+        if (r2 > 180 && r2 - b2 > 20) continue
         visited[pos] = 1
         if (px < minX) minX = px
         if (px > maxX) maxX = px
@@ -55,8 +59,9 @@ export function detectRegDots(imageData, pageWidth, pageHeight) {
 
       const w = maxX - minX + 1
       const h = maxY - minY + 1
-      if (w < 5 || h < 5 || w > 30 || h > 30) continue
-      if (Math.max(w, h) / Math.min(w, h) > 2.2) continue
+      // Allow slightly smaller dots (scale=3 → ~9-12px; after scan may compress)
+      if (w < 4 || h < 4 || w > 40 || h > 40) continue
+      if (Math.max(w, h) / Math.min(w, h) > 2.5) continue
 
       dots.push({ x: (minX + maxX) / 2, y: (minY + maxY) / 2, w, h })
     }
