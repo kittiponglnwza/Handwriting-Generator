@@ -189,19 +189,103 @@ body{font-family:"TH Sarabun New","Noto Sans Thai",Tahoma,sans-serif;background:
 
   const renderChar = (ct, idx, wordVerIdx) => {
     const t = ct.variant
-    const chKey    = String(ct.ch ?? "")
-    const chGlyphs = glyphMap.get(chKey) ?? []
-    const resolvedGlyph = chGlyphs.length > 0 && wordVerIdx != null
-      ? chGlyphs[wordVerIdx % chGlyphs.length] : ct.glyph
     const { slotW, slotH } = glyphMetrics(fontSize, slotWRatio)
     const tx = t.shiftX ?? 0
     const ty = t.shiftYMicro ?? 0
     const mr = t.microRotate ?? 0
+    // overlapPx always based on slotW — preserves original spacing math:
+    //   prev GlyphSlot.marginRight = -overlapPx
+    //   this container.marginLeft  = -overlapPx
+    //   net spacing between chars  = slotW - 2*overlapPx  (same as before fix)
     const overlapPx = Math.min(Math.max(0, Math.round(slotW * overlapFactor)), Math.max(0, slotW - 1))
+    // charSlotW: wider for clusters that have trailing vowels (กา, เก้า …)
+    const charSlotW        = Math.round(slotW * (ct.clusterWidth ?? 1.0))
+    const clusterOverlapPx = Math.min(Math.max(0, Math.round(charSlotW * overlapFactor)), Math.max(0, charSlotW - 1))
+
+    // subGlyphs: one entry per component code-point of the cluster.
+    // tokens.js decomposes "เก้า" → [{ch:"เ"}, {ch:"ก"}, {ch:"้"}, {ch:"า"}]
+    // Latin "A" → [{ch:"A"}]. Fallback for old tokens without subGlyphs field.
+    const subGlyphs = ct.subGlyphs ?? [{ ch: ct.ch, glyph: ct.glyph, preview: ct.preview }]
+
+    // Re-resolve each component using live glyphMap (dnaNonce version-picking).
+    const resolvedSubs = subGlyphs.map(sg => {
+      const candidates = glyphMap.get(sg.ch) ?? []
+      const g = candidates.length > 0 && wordVerIdx != null
+        ? candidates[wordVerIdx % candidates.length]
+        : sg.glyph
+      return { ...sg, glyph: g }
+    })
+
+    const isCluster = resolvedSubs.length > 1
 
     return (
-      <span key={ct.id} style={{ position:"relative", display:"inline-block", transform:`translate(${tx}px,${ty}px) rotate(${mr}deg)`, transformOrigin:"center bottom", verticalAlign:"bottom", marginLeft: idx === 0 ? 0 : `-${overlapPx}px` }}>
-        <GlyphSlot glyph={resolvedGlyph} ch={ct.ch} slotW={slotW} slotH={slotH} opacity={t.opacity} textColor={textColor} hlColor={hlColor} viewBox="0 0 100 100" fontSize={fontSize} strokeWMul={t.strokeWMul ?? 1} overlapFactor={overlapFactor} />
+      // Outer container has NO explicit width — width is determined by the child.
+      // This preserves original overlap math for single glyphs.
+      <span
+        key={ct.id}
+        style={{
+          position:        "relative",
+          display:         "inline-block",
+          transform:       `translate(${tx}px,${ty}px) rotate(${mr}deg)`,
+          transformOrigin: "center bottom",
+          verticalAlign:   "bottom",
+          marginLeft:      idx === 0 ? 0 : `-${overlapPx}px`,
+          overflow:        "visible",
+        }}
+      >
+        {isCluster ? (
+          // ── Thai grapheme cluster ─────────────────────────────────────────
+          // Wrapper mimics GlyphSlot layout role: explicit width + marginRight.
+          // Component glyphs are absolutely layered inside so they overlay correctly.
+          <span style={{
+            display:       "inline-block",
+            position:      "relative",
+            width:         charSlotW,
+            height:        slotH,
+            verticalAlign: "bottom",
+            flexShrink:    0,
+            marginRight:   `-${clusterOverlapPx}px`,
+            overflow:      "visible",
+            background:    hlColor || "transparent",
+          }}>
+            {resolvedSubs.map((sg, si) => (
+              <span
+                key={si}
+                style={{ position:"absolute", inset:0, overflow:"visible", display:"flex", alignItems:"flex-end", justifyContent:"flex-start" }}
+              >
+                <GlyphSlot
+                  glyph={sg.glyph}
+                  ch={sg.ch}
+                  slotW={charSlotW}
+                  slotH={slotH}
+                  opacity={t.opacity}
+                  textColor={textColor}
+                  hlColor={undefined}
+                  viewBox="0 0 100 100"
+                  fontSize={fontSize}
+                  strokeWMul={t.strokeWMul ?? 1}
+                  overlapFactor={0}
+                />
+              </span>
+            ))}
+          </span>
+        ) : (
+          // ── Single glyph (Latin or standalone Thai) ───────────────────────
+          // Identical to original renderChar: GlyphSlot owns width + marginRight.
+          <GlyphSlot
+            glyph={resolvedSubs[0]?.glyph ?? null}
+            ch={resolvedSubs[0]?.ch ?? ct.ch}
+            slotW={slotW}
+            slotH={slotH}
+            opacity={t.opacity}
+            textColor={textColor}
+            hlColor={hlColor}
+            viewBox="0 0 100 100"
+            fontSize={fontSize}
+            strokeWMul={t.strokeWMul ?? 1}
+            overlapFactor={overlapFactor}
+          />
+        )}
         {showVersionDebug && ct.pickedVersion != null && (
           <span style={{ position:"absolute", top:0, right:0, fontSize:7, lineHeight:1, background:W.accent, color:"#fff", borderRadius:2, padding:"1px 2px", pointerEvents:"none", zIndex:10 }}>
             v{ct.pickedVersion}
