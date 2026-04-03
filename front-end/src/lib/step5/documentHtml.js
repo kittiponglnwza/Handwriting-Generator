@@ -1,10 +1,10 @@
 // documentHtml.js — build the HTML fragment rendered as handwritten text.
 //
-// Thai grapheme clusters are stored as multiple individual glyphs in the
-// template (one glyph per code point). The token layer (tokens.js) already
-// decomposed each cluster into subGlyphs[]. This file renders them overlaid
-// inside a single slot using absolute positioning so the result looks like
-// one handwritten character rather than separate parts spread across the page.
+// Thai grapheme clusters use anchor positioning for natural rendering.
+// Each component (consonant, vowels, tone marks) is positioned at specific
+// anchor points relative to the base consonant, mimicking real Thai handwriting.
+
+import { calculateAnchorPositions } from "./thaiAnchors.js"
 
 function escapeHtml(s) {
   return s
@@ -114,8 +114,11 @@ export function buildDocumentHtmlFragment({
       const mr = (v.microRotate ?? 0).toFixed(2)
 
       // Thai grapheme clusters can occupy more horizontal space than a single
-      // consonant. clusterWidth is a multiplier computed by tokens.js:
-      //   "ก" → 1.0,  "กา" → 1.7,  "เก้า" → 1.7,  "A" → 1.0
+      // consonant. clusterWidth is computed by calculateClusterWidth() in thaiAnchors.js:
+      //   "ก"  → 1.0  (single consonant)
+      //   "กั" → 1.0  (consonant + upper vowel — stacks vertically, no extra width)
+      //   "กา" → 1.4  (consonant + trailing vowel — adds horizontal space)
+      //   "เก" → 1.3  (leading vowel + consonant — adds horizontal space)
       const cw        = ct.clusterWidth ?? 1.0
       const charSlotW = Math.round(slotW * cw)
 
@@ -124,27 +127,32 @@ export function buildDocumentHtmlFragment({
 
       // ── Render subGlyphs (Thai cluster) or single glyph (Latin) ──────────
       //
-      // subGlyphs[] contains one entry per component code point of the cluster.
-      // For "เก้า": [เ, ก, ้, า] — each with its own glyph from the template.
-      // We render them all inside one slot using position:absolute so they
-      // overlap exactly the way Thai characters should on the page.
-      //
-      // Each sub-layer fills the slot 100%×100% and uses object-fit:contain
-      // so SVG/PNG glyphs scale correctly. The layers are transparent (PNG
-      // mix-blend-mode:multiply, SVG stroke only) so they compose cleanly.
+      // For Thai clusters, use anchor positioning to place each component
+      // at the correct position relative to the base consonant, creating
+      // natural Thai handwriting appearance.
 
       const subGlyphs = ct.subGlyphs
       let innerContent
 
       if (subGlyphs && subGlyphs.length > 1) {
-        // ── Thai cluster: stack all component glyphs ──────────────────────
-        const layers = subGlyphs.map(sg => {
-          const inner = renderGlyphInner(
-            sg.glyph, sg.preview, sg.ch, textColor, fontSize, v.strokeWMul
+        // ── Thai cluster: stack all components in the same slot ──────────────
+        // Each layer is position:absolute; left:0; bottom:0 filling the slot,
+        // then nudged by offsetX/offsetY for TOP/BOTTOM/LEFT/RIGHT anchors.
+        const cluster   = { subGlyphs }
+        const positions = calculateAnchorPositions(cluster, fontSize)
+
+        const layers = positions.map(pos => {
+          const layerW = Math.round(charSlotW * pos.scale)
+          const layerH = Math.round(slotH     * pos.scale)
+          const inner  = renderGlyphInner(
+            pos.component.glyph, pos.component.preview, pos.component.ch,
+            textColor, fontSize * pos.scale, v.strokeWMul
           )
           return (
-            `<span style="position:absolute;inset:0;display:flex;align-items:flex-end;` +
-            `justify-content:flex-start;overflow:visible">` +
+            `<span style="position:absolute;left:0;bottom:0;` +
+            `width:${layerW}px;height:${layerH}px;` +
+            `transform:translate(${pos.offsetX.toFixed(2)}px,${pos.offsetY.toFixed(2)}px);` +
+            `display:flex;align-items:flex-end;justify-content:flex-start;overflow:visible">` +
             `${inner}</span>`
           )
         }).join("")

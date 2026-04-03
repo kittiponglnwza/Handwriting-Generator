@@ -19,6 +19,7 @@ import { useMemo, useState, useCallback } from "react"
 import { DOCUMENT_SEED } from "../lib/documentSeed.js"
 import { buildTokens } from "../lib/step5/tokens.js"
 import { buildDocumentHtmlFragment as buildDocumentHtmlFragmentLib } from "../lib/step5/documentHtml.js"
+import { calculateAnchorPositions, validateAnchorPositions } from "../lib/step5/thaiAnchors.js"
 import Step5Toolbar from "./step5/Step5Toolbar.jsx"
 import Step5Preview from "./step5/Step5Preview.jsx"
 
@@ -33,6 +34,73 @@ function normalizePngDataUrl(dataUrl) {
   const parts = String(dataUrl).split(",")
   if (parts.length < 2) return ""
   try { return `data:image/png;base64,${btoa(atob(parts[1]))}` } catch { return "" }
+}
+
+function AnchorGlyphSlot({ cluster, slotW, slotH, opacity, textColor, hlColor, viewBox, fontSize, strokeWMul = 1, overlapFactor }) {
+  const positions = calculateAnchorPositions(cluster, fontSize)
+  const overlapPx = Math.min(Math.max(0, Math.round(slotW * (overlapFactor ?? DEFAULT_OVERLAP_FACTOR))), Math.max(0, slotW - 1))
+
+  return (
+    <span style={{
+      display:       "inline-block",
+      position:      "relative",
+      width:         slotW,
+      height:        slotH,
+      verticalAlign: "bottom",
+      flexShrink:    0,
+      marginRight:   `-${overlapPx}px`,
+      overflow:      "visible",
+      background:    hlColor || "transparent",
+      opacity:       opacity ?? 1,
+    }}>
+      {positions.map((pos, idx) => {
+        const g         = pos.component.glyph
+        const ch        = pos.component.ch
+        const hasSvg    = g && typeof g.svgPath === "string" && g.svgPath.trim() !== "" && g.svgPath.trim() !== "M 0 0"
+        const pngInk    = g ? normalizePngDataUrl(g.previewInk ?? "") : ""
+        const usePngInk = pngInk.length > 0
+        const sw        = penStrokeWidth(fontSize * pos.scale, strokeWMul)
+        // Each component fills the entire slot box, then is nudged by offsetX/Y.
+        // This is correct Thai stacking: consonant at baseline, vowel/tone above/below.
+        const layerW = Math.round(slotW  * pos.scale)
+        const layerH = Math.round(slotH  * pos.scale)
+
+        return (
+          <span
+            key={idx}
+            style={{
+              position:  "absolute",
+              left:      0,
+              bottom:    0,
+              width:     layerW,
+              height:    layerH,
+              transform: `translate(${pos.offsetX}px, ${pos.offsetY}px)`,
+              display:   "flex",
+              alignItems:     "flex-end",
+              justifyContent: "flex-start",
+              overflow:  "visible",
+            }}
+          >
+            {hasSvg ? (
+              <svg
+                viewBox={g.viewBox || viewBox || "0 0 100 100"}
+                style={{ width:"100%", height:"100%", overflow:"visible", display:"block", shapeRendering:"geometricPrecision" }}
+                aria-label={ch}
+              >
+                <path d={g.svgPath} fill="none" stroke={textColor || "#2C2416"} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" paintOrder="stroke fill" />
+              </svg>
+            ) : usePngInk ? (
+              <img src={pngInk} alt={ch} style={{ width:"100%", height:"100%", objectFit:"contain", objectPosition:"left bottom", display:"block", mixBlendMode:"multiply" }} />
+            ) : (
+              <span style={{ fontFamily:"'TH Sarabun New','Noto Sans Thai',Tahoma,sans-serif", fontSize:Math.round(fontSize * pos.scale * 0.92), fontWeight:500, lineHeight:1, color:textColor }}>
+                {ch}
+              </span>
+            )}
+          </span>
+        )
+      })}
+    </span>
+  )
 }
 
 function GlyphSlot({ glyph, ch, slotW, slotH, opacity, textColor, hlColor, viewBox, fontSize, strokeWMul = 1, overlapFactor }) {
@@ -202,25 +270,13 @@ body{font-family:"TH Sarabun New","Noto Sans Thai",Tahoma,sans-serif;background:
     const charSlotW        = Math.round(slotW * (ct.clusterWidth ?? 1.0))
     const clusterOverlapPx = Math.min(Math.max(0, Math.round(charSlotW * overlapFactor)), Math.max(0, charSlotW - 1))
 
-    // subGlyphs: one entry per component code-point of the cluster.
-    // tokens.js decomposes "เก้า" → [{ch:"เ"}, {ch:"ก"}, {ch:"้"}, {ch:"า"}]
-    // Latin "A" → [{ch:"A"}]. Fallback for old tokens without subGlyphs field.
-    const subGlyphs = ct.subGlyphs ?? [{ ch: ct.ch, glyph: ct.glyph, preview: ct.preview }]
-
-    // Re-resolve each component using live glyphMap (dnaNonce version-picking).
-    const resolvedSubs = subGlyphs.map(sg => {
-      const candidates = glyphMap.get(sg.ch) ?? []
-      const g = candidates.length > 0 && wordVerIdx != null
-        ? candidates[wordVerIdx % candidates.length]
-        : sg.glyph
-      return { ...sg, glyph: g }
-    })
-
-    const isCluster = resolvedSubs.length > 1
+    // Use subGlyphs (built by tokens.js) to decide rendering path:
+    //   subGlyphs.length > 1  → Thai cluster with anchor-based layered rendering
+    //   otherwise             → single glyph slot (Latin, digit, standalone Thai char)
+    const hasSubGlyphs = ct.subGlyphs && ct.subGlyphs.length > 1
 
     return (
-      // Outer container has NO explicit width — width is determined by the child.
-      // This preserves original overlap math for single glyphs.
+      // Outer container: no explicit width — child determines it.
       <span
         key={ct.id}
         style={{
@@ -233,48 +289,27 @@ body{font-family:"TH Sarabun New","Noto Sans Thai",Tahoma,sans-serif;background:
           overflow:        "visible",
         }}
       >
-        {isCluster ? (
-          // ── Thai grapheme cluster ─────────────────────────────────────────
-          // Wrapper mimics GlyphSlot layout role: explicit width + marginRight.
-          // Component glyphs are absolutely layered inside so they overlay correctly.
-          <span style={{
-            display:       "inline-block",
-            position:      "relative",
-            width:         charSlotW,
-            height:        slotH,
-            verticalAlign: "bottom",
-            flexShrink:    0,
-            marginRight:   `-${clusterOverlapPx}px`,
-            overflow:      "visible",
-            background:    hlColor || "transparent",
-          }}>
-            {resolvedSubs.map((sg, si) => (
-              <span
-                key={si}
-                style={{ position:"absolute", inset:0, overflow:"visible", display:"flex", alignItems:"flex-end", justifyContent:"flex-start" }}
-              >
-                <GlyphSlot
-                  glyph={sg.glyph}
-                  ch={sg.ch}
-                  slotW={charSlotW}
-                  slotH={slotH}
-                  opacity={t.opacity}
-                  textColor={textColor}
-                  hlColor={undefined}
-                  viewBox="0 0 100 100"
-                  fontSize={fontSize}
-                  strokeWMul={t.strokeWMul ?? 1}
-                  overlapFactor={0}
-                />
-              </span>
-            ))}
-          </span>
+        {hasSubGlyphs ? (
+          // ── Thai grapheme cluster: anchor-based layered rendering ──────────
+          // AnchorGlyphSlot renders each component (consonant, vowel, tone mark)
+          // at its correct anchor position (TOP / BOTTOM / LEFT / RIGHT / CENTER).
+          <AnchorGlyphSlot
+            cluster={ct}
+            slotW={charSlotW}
+            slotH={slotH}
+            opacity={t.opacity}
+            textColor={textColor}
+            hlColor={hlColor}
+            viewBox="0 0 100 100"
+            fontSize={fontSize}
+            strokeWMul={t.strokeWMul ?? 1}
+            overlapFactor={overlapFactor}
+          />
         ) : (
-          // ── Single glyph (Latin or standalone Thai) ───────────────────────
-          // Identical to original renderChar: GlyphSlot owns width + marginRight.
+          // ── Single glyph (Latin, digit, standalone Thai consonant) ─────────
           <GlyphSlot
-            glyph={resolvedSubs[0]?.glyph ?? null}
-            ch={resolvedSubs[0]?.ch ?? ct.ch}
+            glyph={ct.glyph}
+            ch={ct.ch}
             slotW={slotW}
             slotH={slotH}
             opacity={t.opacity}

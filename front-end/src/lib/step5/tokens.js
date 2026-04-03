@@ -1,5 +1,4 @@
-// ---------------------------------------------------------------------------
-// THAI GRAPHEME CLUSTER SEGMENTATION
+import { calculateClusterWidth } from "./thaiAnchors.js"
 // ---------------------------------------------------------------------------
 // Thai script: a single "character" perceived by a reader is a grapheme
 // cluster of multiple Unicode code points rendered at the SAME horizontal
@@ -35,76 +34,16 @@ function isThaiTrailingVowel(cp) {
   )
 }
 
-// ─── Grapheme segmentation ───────────────────────────────────────────────────
-// Returns array of grapheme cluster strings.
-// Uses manual Thai rules (not Intl.Segmenter) for consistent cross-engine
-// behaviour that matches pdfAnchors.js clustering exactly.
+// ─── Unicode Grapheme Cluster Segmentation ───────────────────────────────────
+// Use Intl.Segmenter for proper Unicode grapheme cluster segmentation
+// This handles Thai, emoji, accented Latin, and all complex scripts correctly
 
-function segmentGraphemes(str) {
-  if (!str) return []
-
-  const codePoints = [...str].map(ch => ({ ch, cp: ch.codePointAt(0) }))
-  const clusters   = []
-  let pendingLeading = null  // เ แ โ ใ ไ — park until its consonant arrives
-  let current        = null  // Thai cluster being built
-  const nonThaiRun   = []    // buffer of consecutive non-Thai chars
-
-  function flushNonThai() {
-    if (!nonThaiRun.length) return
-    const run = nonThaiRun.splice(0)
-    // Use Intl.Segmenter for non-Thai (handles accented Latin, etc.)
-    if (typeof Intl !== "undefined" && Intl.Segmenter) {
-      try {
-        const seg = new Intl.Segmenter(undefined, { granularity: "grapheme" })
-        for (const s of seg.segment(run.join(""))) clusters.push(s.segment)
-        return
-      } catch { /* fall through */ }
-    }
-    for (const ch of run) clusters.push(ch)
-  }
-  function flushCurrent() {
-    if (current !== null) { clusters.push(current); current = null }
-  }
-  function flushLeading() {
-    if (pendingLeading !== null) { clusters.push(pendingLeading); pendingLeading = null }
-  }
-
-  for (const { ch, cp } of codePoints) {
-    if (!isThai(cp)) {
-      flushCurrent(); flushLeading()
-      nonThaiRun.push(ch)
-      continue
-    }
-    flushNonThai()
-
-    if (isThaiLeadingVowel(cp)) {
-      flushCurrent(); flushLeading()
-      pendingLeading = ch
-      continue
-    }
-    if (isThaiConsonant(cp)) {
-      flushCurrent()
-      current = (pendingLeading ?? "") + ch
-      pendingLeading = null
-      continue
-    }
-    if (isThaiCombining(cp)) {
-      if (current !== null)             current += ch
-      else if (pendingLeading !== null) pendingLeading += ch
-      else                              clusters.push(ch)
-      continue
-    }
-    // Trailing vowel (า ะ อ ว …)
-    if (isThaiTrailingVowel(cp) && current !== null) {
-      current += ch
-      continue
-    }
-    // Standalone Thai (digit, punctuation, etc.)
-    flushCurrent(); flushLeading()
-    clusters.push(ch)
-  }
-  flushCurrent(); flushLeading(); flushNonThai()
-  return clusters
+function segmentUnicodeGraphemes(text) {
+  if (!text) return []
+  
+  // Use Intl.Segmenter with Thai locale for optimal Thai handling
+  const segmenter = new Intl.Segmenter('th', { granularity: 'grapheme' })
+  return [...segmenter.segment(text)].map(segment => segment.segment)
 }
 
 // ─── Cluster component decomposition ────────────────────────────────────────
@@ -247,9 +186,10 @@ export function buildTokens({
     const wordRng   = createRng(wordSeed)
     const wordStyle = buildWordStyle(wordRng, fontWeight)
 
-    // Segment the word into grapheme clusters.
-    // "สวัสดี" → ["สวัส","ดี"]   "Hello" → ["H","e","l","l","o"]
-    const clusters   = segmentGraphemes(seg)
+    // Segment the word into proper Unicode grapheme clusters.
+    // "สวัสดีครับ" → ["ส", "วั", "ส", "ดี", "ค", "รั", "บ"]
+    // "Hello" → ["H","e","l","l","o"]
+    const clusters   = segmentUnicodeGraphemes(seg)
     const charTokens = []
 
     for (let ci = 0; ci < clusters.length; ci++) {
@@ -257,50 +197,51 @@ export function buildTokens({
       const charRng  = createRng(`${wordSeed}-c${ci}`)
       const variant  = buildCharVariant(charRng, wordStyle, fontWeight)
 
-      // Decompose the cluster into individual glyph lookup keys.
-      // Thai cluster "เก้า" → ["เ","ก","้","า"] — each looked up separately.
-      // Non-Thai single char "A" → ["A"].
+      // Decompose cluster into individual codepoint keys matching glyphMap entries.
+      // clusterComponents() returns visual order: leading vowel → consonant → combining → trailing.
+      // For single codepoints (Latin, digits) this is just [cluster].
       const components = clusterComponents(cluster)
 
-      // Build a subGlyph entry for each component.
-      // The renderer will layer them all in one slot via absolute positioning.
-      const subGlyphs = components.map((compCh, si) => {
-        const candidates = glyphMap.get(compCh) || []
-        const pickRng    = createRng(`${wordSeed}-c${ci}-s${si}-pick-e${editNonce}`)
-        const pickIdx    = candidates.length > 0
-          ? Math.floor(pickRng() * candidates.length)
-          : -1
-        const glyph      = pickIdx >= 0 ? candidates[pickIdx] : null
-        return {
-          ch:            compCh,
-          glyph,
-          preview:       glyph ? normalizePngDataUrl(glyph.previewInk || glyph.preview || "") : "",
-          pickedVersion: glyph?.version ?? null,
+      // Build subGlyphs: one entry per component codepoint, each with its own picked glyph.
+      // documentHtml.js and Step5.jsx check ct.subGlyphs?.length > 1 to decide whether to
+      // do anchor-based multi-layer rendering vs single-glyph slot rendering.
+      const subGlyphs = components.map((ch, ki) => {
+        const candidates = glyphMap.get(ch) || []
+        let glyph   = null
+        let preview = ""
+        if (candidates.length > 0) {
+          const pickRng = createRng(`${wordSeed}-c${ci}-k${ki}-e${editNonce}`)
+          const pickIdx = Math.floor(pickRng() * candidates.length)
+          glyph   = candidates[pickIdx]
+          preview = glyph ? normalizePngDataUrl(glyph.previewInk || glyph.preview || "") : ""
         }
+        return { ch, glyph, preview }
       })
 
-      // clusterWidth: how many base slotW units this cluster occupies.
-      // 1.0 for single chars / consonants, up to ~1.7 for เก้า (+ trailing า)
-      const clusterWidth = clusterVisualWidth(cluster)
+      // Primary glyph = consonant component (used for single-slot fallback & pickedVersion).
+      // Prefer consonant; fall back to first component found.
+      const primarySub     = subGlyphs.find(sg => isThaiConsonant(sg.ch.codePointAt(0))) ?? subGlyphs[0]
+      const primaryGlyph   = primarySub?.glyph   ?? null
+      const primaryPreview = primarySub?.preview  ?? ""
 
-      // Backward-compatible: keep top-level glyph/preview pointing to the
-      // primary glyph (first non-leading-vowel component = the consonant)
-      // so existing code paths that reference ct.glyph still work.
-      const primarySub = subGlyphs.find(s => {
-        const cp = s.ch.codePointAt(0)
-        return !isThaiLeadingVowel(cp) && !isThaiCombining(cp)
-      }) ?? subGlyphs[0]
+      // Cluster visual width — uses calculateClusterWidth() from thaiAnchors:
+      //   - TOP/BOTTOM anchors (tone marks, upper/lower vowels) stack → 0 extra width
+      //   - LEFT anchor (leading vowel เ แ โ ใ ไ) adds +0.3
+      //   - RIGHT anchor (trailing vowel า ะ …) adds +0.4
+      // Single codepoint clusters return 1.0.
+      const clusterWidth = calculateClusterWidth(cluster)
 
       charTokens.push({
         type:          "char",
         id:            `c-${globalIdx}-${ci}`,
-        ch:            cluster,          // full cluster string
+        ch:            cluster,
         variant,
-        glyph:         primarySub?.glyph ?? null,        // compat
-        preview:       primarySub?.preview ?? "",         // compat
-        pickedVersion: primarySub?.glyph?.version ?? null,
+        glyph:         primaryGlyph,
+        preview:       primaryPreview,
+        pickedVersion: primaryGlyph?.version ?? null,
         clusterWidth,
-        subGlyphs,     // NEW: array of per-component glyph lookups
+        // subGlyphs present only for multi-codepoint clusters → triggers layered rendering.
+        subGlyphs:     subGlyphs.length > 1 ? subGlyphs : undefined,
       })
     }
 
