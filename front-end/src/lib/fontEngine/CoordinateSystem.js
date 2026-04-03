@@ -65,16 +65,18 @@ export class CoordinateSystem {
    * @returns {Object} Transformed coordinates
    */
   transformGlyph(glyph, fontSize, x = 0, y = 0) {
-    const baselinePos = this.getBaselinePosition(fontSize)
+    // NOTE: glyph paths in this engine use top-of-line-box as origin (y increases downward),
+    // NOT the OpenType baseline convention. So we do NOT add baselinePos here.
+    // y parameter = top of the current line box.
     const scale = fontSize / this.unitsPerEm
 
     return {
       x: x + this.unitsToPixels(glyph.leftBearing, fontSize),
-      y: y + baselinePos + this.unitsToPixels(glyph.baselineOffset, fontSize),
+      y: y + this.unitsToPixels(glyph.baselineOffset, fontSize),
       scale: scale,
       advanceWidth: this.unitsToPixels(glyph.advanceWidth, fontSize),
       totalWidth: this.unitsToPixels(glyph.totalWidth, fontSize),
-      baselinePosition: baselinePos,
+      baselinePosition: 0,
     }
   }
 
@@ -87,12 +89,10 @@ export class CoordinateSystem {
    * @returns {Object} Transformed anchor coordinates
    */
   transformAnchor(anchor, fontSize, baseX, baseY) {
-    const baselinePos = this.getBaselinePosition(fontSize)
     const scale = fontSize / this.unitsPerEm
-
     return {
       x: baseX + this.unitsToPixels(anchor.x, fontSize),
-      y: baseY + baselinePos + this.unitsToPixels(anchor.y, fontSize),
+      y: baseY - this.unitsToPixels(anchor.y, fontSize),
       scale: scale,
     }
   }

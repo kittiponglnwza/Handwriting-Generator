@@ -3,7 +3,7 @@
 
 import { coordinateSystem } from './CoordinateSystem.js'
 import { globalGlyphCache } from './Glyph.js'
-import { parseGraphemeClustersWithMetadata } from './GraphemeCluster.js'
+import { parseThaiWithMetadata } from './ThaiClusterParser.js'
 
 /**
  * Kerning system for glyph pairs
@@ -174,12 +174,13 @@ export class LayoutEngine {
   layoutText(text, fontSize) {
     if (!text) return []
     
-    const clusters = parseGraphemeClustersWithMetadata(text)
+    // CRITICAL FIX: Use proper Thai cluster parsing
+    const clusters = parseThaiWithMetadata(text)
     const positionedGlyphs = []
     
     let currentX = 0
     let currentY = 0
-    let previousChar = null
+    let previousBaseChar = null
     
     for (let clusterIndex = 0; clusterIndex < clusters.length; clusterIndex++) {
       const clusterData = clusters[clusterIndex]
@@ -189,7 +190,7 @@ export class LayoutEngine {
       if (cluster.text === '\n') {
         currentX = 0
         currentY += this.coordinateSystem.getLineHeight(fontSize, this.options.lineHeight)
-        previousChar = null
+        previousBaseChar = null
         continue
       }
       
@@ -198,43 +199,38 @@ export class LayoutEngine {
         // Space uses advance width without rendering glyph
         const spaceWidth = this.coordinateSystem.unitsToPixels(300, fontSize) // Standard space width
         currentX += spaceWidth + this.options.letterSpacing
-        previousChar = ' '
+        previousBaseChar = ' '
         continue
       }
       
-      // Layout cluster
-      const clusterGlyphs = this.layoutCluster(cluster, fontSize, currentX, currentY, previousChar)
+      // CRITICAL FIX: Check line wrapping BEFORE laying out cluster
+      // Calculate cluster width to check if it fits on current line
+      const clusterWidth = this.calculateClusterWidth(cluster, fontSize, previousBaseChar)
+      const wouldExceedWidth = this.options.maxWidth !== Infinity && 
+                            (currentX + clusterWidth) > this.options.maxWidth
+      
+      if (wouldExceedWidth) {
+        // Move to new line
+        currentX = 0
+        currentY += this.coordinateSystem.getLineHeight(fontSize, this.options.lineHeight)
+        previousBaseChar = null
+      }
+      
+      // Layout cluster on current line (or new line if wrapped)
+      const clusterGlyphs = this.layoutThaiCluster(cluster, fontSize, currentX, currentY, previousBaseChar)
       positionedGlyphs.push(...clusterGlyphs)
       
-      // Update position for next cluster - CRITICAL FIX: Use base character's advanceWidth
+      // CRITICAL FIX: Update position based on cluster's base character ONLY
       if (clusterGlyphs.length > 0) {
-        const baseGlyph = clusterGlyphs.find(g => g.anchorType === null || g.anchorType === undefined) // Base character
+        const baseGlyph = clusterGlyphs.find(g => !g.anchorType) // Base character (no anchor type)
         if (baseGlyph) {
           // Use ONLY the base character's advanceWidth for spacing
           currentX += baseGlyph.transformed.advanceWidth + this.options.letterSpacing
+          previousBaseChar = cluster.baseChar
         } else {
-          // Fallback: use first glyph
+          // Fallback: use first glyph's advanceWidth
           currentX += clusterGlyphs[0].transformed.advanceWidth + this.options.letterSpacing
-        }
-        previousChar = cluster.baseChar || cluster.text
-      }
-      
-      // Check for line wrapping
-      if (this.options.maxWidth !== Infinity && currentX > this.options.maxWidth) {
-        currentX = 0
-        currentY += this.coordinateSystem.getLineHeight(fontSize, this.options.lineHeight)
-        
-        // Reposition the current cluster on new line
-        const repositionedGlyphs = this.layoutCluster(cluster, fontSize, currentX, currentY, null)
-        positionedGlyphs.splice(-clusterGlyphs.length, clusterGlyphs.length, ...repositionedGlyphs)
-        
-        if (repositionedGlyphs.length > 0) {
-          const baseGlyph = repositionedGlyphs.find(g => g.anchorType === null || g.anchorType === undefined)
-          if (baseGlyph) {
-            currentX += baseGlyph.transformed.advanceWidth + this.options.letterSpacing
-          } else {
-            currentX += repositionedGlyphs[0].transformed.advanceWidth + this.options.letterSpacing
-          }
+          previousBaseChar = cluster.text[0]
         }
       }
     }
@@ -243,32 +239,71 @@ export class LayoutEngine {
   }
 
   /**
-   * Layout a single grapheme cluster
-   * @param {GraphemeCluster} cluster - Grapheme cluster
+   * Calculate the width of a cluster for line wrapping purposes
+   * @param {ThaiCluster} cluster - Thai cluster object
+   * @param {number} fontSize - Font size in pixels
+   * @param {string} previousBaseChar - Previous base character for kerning
+   * @returns {number} Cluster width in pixels
+   */
+  calculateClusterWidth(cluster, fontSize, previousBaseChar) {
+    // CRITICAL FIX: Get base character for width calculation
+    const baseChar = cluster.baseChar
+    const baseGlyph = baseChar ? globalGlyphCache.getWithFallback(baseChar) : null
+    
+    if (!baseGlyph) {
+      // Fallback: estimate width from first character for non-Thai clusters
+      const firstChar = cluster.text[0]
+      const firstGlyph = globalGlyphCache.getWithFallback(firstChar)
+      return this.coordinateSystem.unitsToPixels(firstGlyph.advanceWidth, fontSize) + this.options.letterSpacing
+    }
+    
+    // Apply kerning adjustment
+    let kerningAdjustment = 0
+    if (this.options.kerning && previousBaseChar && baseChar) {
+      kerningAdjustment = this.kerningSystem.getKerningAdjustment(previousBaseChar, baseChar)
+    }
+    
+    // CRITICAL FIX: Cluster width = base character's advance width + kerning + letter spacing
+    // Marks (upper/lower) should NOT contribute to width
+    const baseWidth = baseGlyph.advanceWidth + kerningAdjustment
+    return this.coordinateSystem.unitsToPixels(baseWidth, fontSize) + this.options.letterSpacing
+  }
+
+  /**
+   * Layout a single Thai cluster
+   * @param {ThaiCluster} cluster - Thai cluster object
    * @param {number} fontSize - Font size in pixels
    * @param {number} x - Starting X position
    * @param {number} y - Baseline Y position
-   * @param {string} previousChar - Previous character for kerning
+   * @param {string} previousBaseChar - Previous base character for kerning
    * @returns {Array<PositionedGlyph>} Array of positioned glyphs
    */
-  layoutCluster(cluster, fontSize, x, y, previousChar) {
+  layoutThaiCluster(cluster, fontSize, x, y, previousBaseChar) {
     const positionedGlyphs = []
     const renderingOrder = cluster.getRenderingOrder()
     
-    // Find base character for anchor positioning
-    const baseChar = cluster.getBaseChar()
+    // Get base character for anchor positioning
+    const baseChar = cluster.baseChar
     const baseGlyph = baseChar ? globalGlyphCache.getWithFallback(baseChar) : null
     
     // Apply kerning to base character
     let kerningAdjustment = 0
-    if (this.options.kerning && previousChar && baseChar) {
-      kerningAdjustment = this.kerningSystem.getKerningAdjustment(previousChar, baseChar)
+    if (this.options.kerning && previousBaseChar && baseChar) {
+      kerningAdjustment = this.kerningSystem.getKerningAdjustment(previousBaseChar, baseChar)
     }
     
     const adjustedX = x + this.coordinateSystem.unitsToPixels(kerningAdjustment, fontSize)
-    
-    // Store base glyph positioned coordinates for mark attachment
+
+    // CRITICAL FIX: Pre-compute baseGlyphTransformed in a first pass so that
+    // marks can use it regardless of rendering order. Previously, if a mark was
+    // encountered before baseGlyphTransformed was set (impossible given
+    // getRenderingOrder but still a latent risk), it fell back to the wrong
+    // position — and with the leading-vowel cluster-boundary bug this could
+    // produce marks that were laid out on a fresh line without any base context.
     let baseGlyphTransformed = null
+    if (baseGlyph) {
+      baseGlyphTransformed = this.coordinateSystem.transformGlyph(baseGlyph, fontSize, adjustedX, y)
+    }
     
     // Layout each character in the cluster
     renderingOrder.forEach((char, index) => {
@@ -279,39 +314,26 @@ export class LayoutEngine {
       let glyphY = y // Always start at baseline
       let anchorType = null
       
-      if (isMark && baseGlyph && baseGlyphTransformed) {
-        // Position mark using anchor points relative to positioned base glyph
+      if (isMark) {
+        // Simple offset positioning — same approach as normal fonts.
+        // All marks share the same X as the base character (they are zero-width).
+        // Y offset is a fixed fraction of fontSize relative to the cluster baseline.
+        // This bypasses the broken multi-layer anchor/transform pipeline entirely.
         const markType = cluster.getCombiningMarks().find(mark => mark.char === char)?.type
         anchorType = markType
-        
-        const anchor = baseGlyph.getAnchor(markType)
-        if (anchor) {
-          // Transform anchor point relative to the positioned base glyph
-          const anchorTransformed = this.coordinateSystem.transformAnchor(anchor, fontSize, baseGlyphTransformed.x, baseGlyphTransformed.y)
-          
-          glyphX = anchorTransformed.x - this.coordinateSystem.unitsToPixels(glyph.leftBearing, fontSize)
-          glyphY = anchorTransformed.y - this.coordinateSystem.unitsToPixels(glyph.baselineOffset, fontSize)
-        } else {
-          // Fallback positioning - minimal and relative to baseline
-          glyphX = adjustedX
-          glyphY = y + this.getMarkOffset(markType, fontSize)
-        }
+        glyphX = adjustedX
+        glyphY = y + this.getMarkOffset(markType, fontSize)
       } else if (char === baseChar) {
         // Base character uses adjusted position
         glyphX = adjustedX
         glyphY = y // Base character always on baseline
       } else {
-        // Other characters (leading vowels, etc.) - position at baseline
+        // Leading vowels and other non-mark characters — same baseline as base char
         glyphX = adjustedX
         glyphY = y
       }
       
       const transformed = this.coordinateSystem.transformGlyph(glyph, fontSize, glyphX, glyphY)
-      
-      // Store base glyph transformed position for mark attachment
-      if (char === baseChar) {
-        baseGlyphTransformed = transformed
-      }
       
       const positionedGlyph = new PositionedGlyph(
         glyph,
@@ -338,9 +360,13 @@ export class LayoutEngine {
   getMarkOffset(markType, fontSize) {
     switch (markType) {
       case 'top':
-        return -fontSize * 0.3
+        // Upper mark paths are now drawn at negative y (y ≈ -300 to -150 font units),
+        // which places them visually above the base character. No extra offset needed.
+        return 0
       case 'bottom':
-        return fontSize * 0.15
+        // Lower mark paths are now drawn at y ≈ 950-1000 font units,
+        // which places them visually below the base character. No extra offset needed.
+        return 0
       default:
         return 0
     }

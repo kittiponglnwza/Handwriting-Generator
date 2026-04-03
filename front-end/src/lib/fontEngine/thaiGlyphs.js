@@ -82,11 +82,28 @@ const THAI_CONSONANTS = {
 }
 
 // Vowels and tone marks (combining characters)
+//
+// COORDINATE GUIDE for marks:
+// Base glyphs occupy roughly y=100 (top) to y=850 (bottom) in font units.
+// transformGlyph places them at screen: translate(x, lineY + fontSize*0.8) scale(fontSize/1000)
+// So a font unit y=100 → screen ≈ lineY + 43px (at fontSize=48) — that is the top of the base char.
+// A font unit y=850 → screen ≈ lineY + 79px — that is the bottom of the base char.
+//
+// UPPER marks (่ ้ ๊ ๋ ิ ี ึ ื ั) must appear ABOVE the base top (y=100).
+//   Target screen position: lineY + 20 to lineY + 38 (just above the char top).
+//   Required font y: around -300 to -100  (negative = above the ascender line).
+//
+// LOWER marks (ุ ู ฺ) must appear BELOW the base bottom (y=850).
+//   Target screen position: lineY + 85 to lineY + 100.
+//   Required font y: around 950 to 1100.
+//
+// getMarkOffset is set to 0 for both — NO magic pixel nudging needed once paths are correct.
+
 const THAI_MARKS = {
-  // Tone marks (attach to top anchor)
+  // Tone marks — single wave above the character
   '่': {
     char: '่',
-    path: 'M 150 650 Q 200 600 250 650 Q 300 700 350 650 M 250 650 Q 300 600 350 650',
+    path: 'M 150 -300 Q 200 -350 250 -300 Q 300 -250 350 -300 M 250 -300 Q 300 -350 350 -300',
     advanceWidth: 0,
     leftBearing: -100,
     rightBearing: 100,
@@ -96,7 +113,7 @@ const THAI_MARKS = {
 
   '้': {
     char: '้',
-    path: 'M 150 650 Q 200 600 250 650 Q 300 700 350 650 M 100 650 Q 150 600 200 650 Q 250 700 300 650 M 250 650 Q 300 600 350 650',
+    path: 'M 150 -300 Q 200 -350 250 -300 Q 300 -250 350 -300 M 100 -300 Q 150 -350 200 -300 Q 250 -250 300 -300 M 250 -300 Q 300 -350 350 -300',
     advanceWidth: 0,
     leftBearing: -150,
     rightBearing: 150,
@@ -106,7 +123,7 @@ const THAI_MARKS = {
 
   '๊': {
     char: '๊',
-    path: 'M 150 650 Q 200 600 250 650 Q 300 700 350 650 M 250 650 Q 300 600 350 650 M 200 650 Q 250 600 300 650',
+    path: 'M 150 -300 Q 200 -350 250 -300 Q 300 -250 350 -300 M 250 -300 Q 300 -350 350 -300 M 200 -300 Q 250 -350 300 -300',
     advanceWidth: 0,
     leftBearing: -100,
     rightBearing: 100,
@@ -116,7 +133,7 @@ const THAI_MARKS = {
 
   '๋': {
     char: '๋',
-    path: 'M 150 650 Q 200 600 250 650 Q 300 700 350 650 M 250 650 Q 300 600 350 650 M 200 650 Q 250 600 300 650 M 100 650 Q 150 600 200 650',
+    path: 'M 150 -300 Q 200 -350 250 -300 Q 300 -250 350 -300 M 250 -300 Q 300 -350 350 -300 M 200 -300 Q 250 -350 300 -300 M 100 -300 Q 150 -350 200 -300',
     advanceWidth: 0,
     leftBearing: -150,
     rightBearing: 150,
@@ -124,10 +141,10 @@ const THAI_MARKS = {
     anchors: {},
   },
 
-  // Upper vowels (attach to top anchor)
+  // Upper vowels — sit just above the top of the base character
   'ิ': {
     char: 'ิ',
-    path: 'M 200 600 Q 250 550 300 600 Q 350 650 400 600',
+    path: 'M 200 -200 Q 250 -250 300 -200 Q 350 -150 400 -200',
     advanceWidth: 0,
     leftBearing: -100,
     rightBearing: 100,
@@ -137,7 +154,7 @@ const THAI_MARKS = {
 
   'ี': {
     char: 'ี',
-    path: 'M 200 600 Q 250 550 300 600 Q 350 650 400 600 M 150 600 Q 200 550 250 600 Q 300 650 350 600',
+    path: 'M 200 -200 Q 250 -250 300 -200 Q 350 -150 400 -200 M 150 -200 Q 200 -250 250 -200 Q 300 -150 350 -200',
     advanceWidth: 0,
     leftBearing: -150,
     rightBearing: 150,
@@ -147,7 +164,7 @@ const THAI_MARKS = {
 
   'ึ': {
     char: 'ึ',
-    path: 'M 200 550 Q 250 500 300 550 Q 350 600 400 550 M 200 650 Q 250 600 300 650 Q 350 700 400 650',
+    path: 'M 200 -250 Q 250 -300 300 -250 Q 350 -200 400 -250 M 200 -150 Q 250 -200 300 -150 Q 350 -100 400 -150',
     advanceWidth: 0,
     leftBearing: -100,
     rightBearing: 100,
@@ -157,7 +174,7 @@ const THAI_MARKS = {
 
   'ื': {
     char: 'ื',
-    path: 'M 200 550 Q 250 500 300 550 Q 350 600 400 550 M 150 550 Q 200 500 250 550 Q 300 600 350 550 M 200 650 Q 250 600 300 650 Q 350 700 400 650 M 150 650 Q 200 600 250 650 Q 300 700 350 650',
+    path: 'M 200 -250 Q 250 -300 300 -250 Q 350 -200 400 -250 M 150 -250 Q 200 -300 250 -250 Q 300 -200 350 -250 M 200 -150 Q 250 -200 300 -150 Q 350 -100 400 -150 M 150 -150 Q 200 -200 250 -150 Q 300 -100 350 -150',
     advanceWidth: 0,
     leftBearing: -150,
     rightBearing: 150,
@@ -167,7 +184,7 @@ const THAI_MARKS = {
 
   'ั': {
     char: 'ั',
-    path: 'M 200 500 Q 300 450 400 500 Q 500 550 600 500',
+    path: 'M 200 -200 Q 300 -250 400 -200 Q 500 -150 600 -200',
     advanceWidth: 0,
     leftBearing: -100,
     rightBearing: 100,
@@ -175,10 +192,10 @@ const THAI_MARKS = {
     anchors: {},
   },
 
-  // Lower vowels (attach to bottom anchor)
+  // Lower vowels — sit just below the bottom of the base character (y=850+)
   'ุ': {
     char: 'ุ',
-    path: 'M 200 100 Q 250 50 300 100 Q 350 150 400 100',
+    path: 'M 200 950 Q 250 900 300 950 Q 350 1000 400 950',
     advanceWidth: 0,
     leftBearing: -100,
     rightBearing: 100,
@@ -188,7 +205,7 @@ const THAI_MARKS = {
 
   'ู': {
     char: 'ู',
-    path: 'M 200 100 Q 250 50 300 100 Q 350 150 400 100 M 150 100 Q 200 50 250 100 Q 300 150 350 100',
+    path: 'M 200 950 Q 250 900 300 950 Q 350 1000 400 950 M 150 950 Q 200 900 250 950 Q 300 1000 350 950',
     advanceWidth: 0,
     leftBearing: -150,
     rightBearing: 150,
@@ -198,7 +215,7 @@ const THAI_MARKS = {
 
   'ฺ': {
     char: 'ฺ',
-    path: 'M 250 50 Q 300 0 350 50',
+    path: 'M 250 900 Q 300 850 350 900',
     advanceWidth: 0,
     leftBearing: -50,
     rightBearing: 50,
