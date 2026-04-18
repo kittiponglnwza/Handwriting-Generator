@@ -115,9 +115,9 @@ export function buildGSUB(glyphInfo) {
 
   // ── Feature list ───────────────────────────────────────────────────────────
   const features = [
-    { tag: 'salt', lookupListIndices: [0] },
-    { tag: 'calt', lookupListIndices: [1, 2, ...Array.from({ length: caltRules.length }, (_, i) => caltChainLookupIdx + i)] },
-    { tag: 'liga', lookupListIndices: [] }, // reserved
+    { tag: 'salt', feature: { featureParams: 0, lookupListIndexes: [0] } },
+    { tag: 'calt', feature: { featureParams: 0, lookupListIndexes: [1, 2, ...Array.from({ length: caltRules.length }, (_, i) => caltChainLookupIdx + i)] } },
+    { tag: 'liga', feature: { featureParams: 0, lookupListIndexes: [] } }, // reserved
   ]
 
   // ── Script list ────────────────────────────────────────────────────────────
@@ -126,8 +126,8 @@ export function buildGSUB(glyphInfo) {
       tag: 'thai',
       script: {
         defaultLangSys: {
-          reserved: 0, requiredFeatureIndex: 0xFFFF,
-          featureIndices: [0, 1, 2],
+          reqFeatureIndex: 0xFFFF,
+          featureIndexes: [0, 1, 2],
         },
         langSysRecords: [],
       },
@@ -136,8 +136,8 @@ export function buildGSUB(glyphInfo) {
       tag: 'latn',
       script: {
         defaultLangSys: {
-          reserved: 0, requiredFeatureIndex: 0xFFFF,
-          featureIndices: [0, 1, 2],
+          reqFeatureIndex: 0xFFFF,
+          featureIndexes: [0, 1, 2],
         },
         langSysRecords: [],
       },
@@ -245,8 +245,8 @@ export function buildGPOS(glyphInfo) {
   }
 
   const features = [
-    { tag: 'mark', lookupListIndices: [0] },
-    { tag: 'mkmk', lookupListIndices: [] }, // stub — future mark-to-mark
+    { tag: 'mark', feature: { featureParams: 0, lookupListIndexes: [0] } },
+    { tag: 'mkmk', feature: { featureParams: 0, lookupListIndexes: [] } }, // stub — future mark-to-mark
   ]
 
   const scriptList = [
@@ -254,8 +254,8 @@ export function buildGPOS(glyphInfo) {
       tag: 'thai',
       script: {
         defaultLangSys: {
-          reserved: 0, requiredFeatureIndex: 0xFFFF,
-          featureIndices: [0, 1],
+          reqFeatureIndex: 0xFFFF,
+          featureIndexes: [0, 1],
         },
         langSysRecords: [],
       },
@@ -292,9 +292,9 @@ function _buildCaltRules(glyphInfo) {
       lookupType: 6,
       lookupFlag: 0,
       subtables: [{
-        format: 3,
-        backtrackCoverage:  [{ glyphs: [glyphIndex] }],
-        inputCoverage:      [{ glyphs: [glyphIndex] }],
+        substFormat: 3,
+        backtrackCoverage:  [{ format: 1, glyphs: [glyphIndex] }],
+        inputCoverage:      [{ format: 1, glyphs: [glyphIndex] }],
         lookaheadCoverage:  [],
         lookupRecords:      [{ sequenceIndex: 0, lookupListIndex: 1 }],
       }],
@@ -305,9 +305,9 @@ function _buildCaltRules(glyphInfo) {
       lookupType: 6,
       lookupFlag: 0,
       subtables: [{
-        format: 3,
-        backtrackCoverage:  [{ glyphs: [alt1Index] }],
-        inputCoverage:      [{ glyphs: [glyphIndex] }],
+        substFormat: 3,
+        backtrackCoverage:  [{ format: 1, glyphs: [alt1Index] }],
+        inputCoverage:      [{ format: 1, glyphs: [glyphIndex] }],
         lookaheadCoverage:  [],
         lookupRecords:      [{ sequenceIndex: 0, lookupListIndex: 2 }],
       }],
@@ -323,14 +323,13 @@ function _buildCaltRules(glyphInfo) {
  */
 function _buildSingleSubstSubtable(pairs) {
   if (pairs.length === 0) {
-    return { format: 2, coverage: { glyphs: [] }, glyphs: [] }
+    return { substFormat: 2, coverage: { format: 1, glyphs: [] }, substitute: [] }
   }
-  // Sort by glyph index for deterministic output
   const sorted = [...pairs].sort((a, b) => a.sub - b.sub)
   return {
-    format: 2,
-    coverage: { glyphs: sorted.map(p => p.sub) },
-    glyphs:   sorted.map(p => p.by),
+    substFormat: 2,
+    coverage: { format: 1, glyphs: sorted.map(p => p.sub) },
+    substitute: sorted.map(p => p.by),
   }
 }
 

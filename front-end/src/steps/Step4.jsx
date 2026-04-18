@@ -213,10 +213,13 @@ function FontPreviewPane({ fontName, ttfBuffer }) {
     'กขคงจฉชซญดตถทธนบปผฝพฟภมยรลวศษสหอฮ\nThe quick brown fox jumps over the lazy dog.\nABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz\n0123456789 !@#$%^&*()-+=\nสวัสดี ภาษาไทย ทดสอบระบบ ฟอนต์ลายมือ'
   )
   const [fontSize, setFontSize] = useState(32)
+  const [fontLoaded, setFontLoaded] = useState(false)
   const fontStyleId = `font-preview-${fontName.replace(/\s+/g, '-')}`
+  const fontFamily  = `'${fontName}-Preview'`
 
   useEffect(() => {
-    if (!ttfBuffer) return
+    if (!ttfBuffer) { setFontLoaded(false); return }
+
     const existing = document.getElementById(fontStyleId)
     if (existing) existing.remove()
 
@@ -224,12 +227,27 @@ function FontPreviewPane({ fontName, ttfBuffer }) {
     const url   = URL.createObjectURL(blob)
     const style = document.createElement('style')
     style.id    = fontStyleId
-    style.textContent = `@font-face { font-family: '${fontName}-Preview'; src: url('${url}') format('truetype'); }`
+    style.textContent = `@font-face { font-family: '${fontName}-Preview'; src: url('${url}') format('truetype'); font-display: block; }`
     document.head.appendChild(style)
+
+    // ใช้ FontFace API เพื่อรอให้ font โหลดจริงๆ แล้วค่อย set loaded
+    if (typeof FontFace !== 'undefined') {
+      const ff = new FontFace(`${fontName}-Preview`, `url('${url}')`, { display: 'block' })
+      ff.load().then(() => {
+        document.fonts.add(ff)
+        setFontLoaded(true)
+      }).catch(() => {
+        // fallback: แค่ set loaded หลัง delay สั้นๆ
+        setTimeout(() => setFontLoaded(true), 300)
+      })
+    } else {
+      setTimeout(() => setFontLoaded(true), 300)
+    }
 
     return () => {
       style.remove()
       URL.revokeObjectURL(url)
+      setFontLoaded(false)
     }
   }, [ttfBuffer, fontName])
 
@@ -239,6 +257,16 @@ function FontPreviewPane({ fontName, ttfBuffer }) {
         <p style={{ fontSize: 11, fontWeight: 500, color: C.inkLt, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
           Live Font Preview
         </p>
+        {ttfBuffer && (
+          <span style={{
+            fontSize: 10, padding: '2px 8px', borderRadius: 4,
+            background: fontLoaded ? '#EBF5EE' : C.amberLt,
+            color: fontLoaded ? '#2E6B3E' : C.amber,
+            border: `1px solid ${fontLoaded ? '#A8D5B5' : C.amberMd}`,
+          }}>
+            {fontLoaded ? '✓ ฟอนต์โหลดแล้ว' : '⟳ กำลังโหลดฟอนต์…'}
+          </span>
+        )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
           <span style={{ fontSize: 11, color: C.inkLt }}>Size:</span>
           <input
@@ -255,22 +283,23 @@ function FontPreviewPane({ fontName, ttfBuffer }) {
         style={{
           width: '100%', boxSizing: 'border-box',
           minHeight: 180, resize: 'vertical',
-          fontFamily: ttfBuffer ? `'${fontName}-Preview', cursive` : 'cursive',
+          fontFamily: fontLoaded ? `${fontFamily}, cursive` : 'cursive',
           fontSize,
           lineHeight: 1.6,
           padding: '14px 16px',
-          border: `1px solid ${C.border}`,
+          border: `1px solid ${fontLoaded ? C.sageMd : C.border}`,
           borderRadius: 10,
           background: '#FEFCF8',
           color: C.ink,
           outline: 'none',
+          transition: 'border-color 0.2s',
         }}
         placeholder="พิมพ์ข้อความเพื่อดูตัวอย่างฟอนต์..."
         spellCheck={false}
       />
       {!ttfBuffer && (
         <p style={{ fontSize: 10, color: C.inkLt, marginTop: 6 }}>
-          ⚠ Build font ก่อนเพื่อดู preview ด้วยฟอนต์จริง (ตอนนี้แสดงฟอนต์ cursive ของระบบ)
+          ⚠ รอ build font ให้เสร็จก่อน (กำลัง build อัตโนมัติ…)
         </p>
       )}
     </div>
@@ -365,11 +394,18 @@ export default function Step4({ glyphs = [], onFontReady }) {
     if (entries.length > 0 && !previewChar) setPreviewChar(entries[0][0])
   }, [entries])
 
+  const buildStateRef = useRef(buildState)
+  useEffect(() => { buildStateRef.current = buildState }, [buildState])
+
   // ── Auto-build เมื่อ glyphs พร้อม และยังไม่เคย build ─────────────────────
   // ทำให้ Step 5 ได้ font ทันทีแม้ user ไม่เคยเข้า Step 4 เลย
   useEffect(() => {
-    if (hasGlyphs && buildState === 'idle') {
-      handleBuild()
+    if (hasGlyphs && buildStateRef.current === 'idle') {
+      // delay เล็กน้อยเพื่อให้ glyphMap compute เสร็จก่อน
+      const t = setTimeout(() => {
+        if (buildStateRef.current === 'idle') handleBuild()
+      }, 100)
+      return () => clearTimeout(t)
     }
   }, [hasGlyphs]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -398,7 +434,7 @@ export default function Step4({ glyphs = [], onFontReady }) {
 
   // ── Build ──────────────────────────────────────────────────────────────────
   const handleBuild = useCallback(async () => {
-    if (!hasGlyphs || buildState === 'building') return
+    if (!hasGlyphs || buildStateRef.current === 'building') return
     setBuildState('building')
     setErrorMsg('')
     setBuildResult(null)
@@ -444,7 +480,7 @@ export default function Step4({ glyphs = [], onFontReady }) {
         { level: 'error', msg: `Build failed: ${err.message}`, ts: Date.now() },
       ])
     }
-  }, [hasGlyphs, buildState, glyphMap, fontName])
+  }, [hasGlyphs, glyphMap, fontName])
 
   // ── Downloads ──────────────────────────────────────────────────────────────
   const handleDownloadTTF  = () => downloadBuffer(buildResult.ttfBuffer,  `${fontName}.ttf`,  'font/ttf')
@@ -798,11 +834,10 @@ export default function Step4({ glyphs = [], onFontReady }) {
       )}
 
       {/* ════════════ Tab: Preview ════════════ */}
-      {activeTab === 'preview' && (
-        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px', marginBottom: 20 }}>
-          <FontPreviewPane fontName={fontName} ttfBuffer={buildResult?.ttfBuffer ?? null} />
-        </div>
-      )}
+      {/* always mounted เพื่อป้องกัน @font-face หาย เมื่อ switch tab */}
+      <div style={{ display: activeTab === 'preview' ? 'block' : 'none', background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px', marginBottom: 20 }}>
+        <FontPreviewPane fontName={fontName} ttfBuffer={buildResult?.ttfBuffer ?? null} />
+      </div>
 
       {/* ════════════ Tab: Install ════════════ */}
       {activeTab === 'install' && (

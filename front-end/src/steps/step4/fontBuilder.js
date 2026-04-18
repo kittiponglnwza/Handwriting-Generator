@@ -417,6 +417,8 @@ export async function compileFontBuffer(glyphMap, fontName = FONT_NAME, onProgre
   addLog(emit('กำลัง build GSUB (salt, calt)…', 76))
   try {
     const gsub = buildGSUB(glyphInfo)
+    // ตรวจก่อนว่า opentype.js รองรับ format นี้
+    // ถ้า attach แล้ว serialize ได้ก็ดี ถ้าไม่ได้ก็ skip (font ยังใช้งานได้ แค่ไม่มี OT features)
     font.tables.gsub = gsub
     addLog(emit('✓ GSUB table attached', 78, 'success'))
   } catch (err) {
@@ -424,28 +426,56 @@ export async function compileFontBuffer(glyphMap, fontName = FONT_NAME, onProgre
   }
 
   // ── GPOS table — Thai mark-to-base anchors ─────────────────────────────────
-  addLog(emit('กำลัง build GPOS (mark)…', 80))
+  // ⚠ opentype.js 1.3.x ไม่รองรับ GPOS writing (subtableMakers เป็น empty array)
+  // Skip GPOS เพื่อป้องกัน crash ตอน serialize
+  addLog(emit('— GPOS skipped (opentype.js 1.3.x does not support GPOS writing)', 82))
+
+  // ── Test-serialize ก่อน export จริง เพื่อตรวจว่า GSUB/GPOS ไม่ทำให้ crash ───
+  // ถ้า serialize พัง ให้ลบ GSUB/GPOS ออกแล้ว retry
+  const _testSerialize = () => {
+    if (typeof font.toArrayBuffer === 'function') return font.toArrayBuffer()
+    return font.toBuffer()
+  }
   try {
-    const gpos = buildGPOS(glyphInfo)
-    if (gpos) {
-      font.tables.gpos = gpos
-      addLog(emit('✓ GPOS mark-to-base table attached', 82, 'success'))
-    } else {
-      addLog(emit('— GPOS skipped (no Thai marks in this glyph set)', 82))
-    }
-  } catch (err) {
-    addLog(emit(`⚠ GPOS build failed: ${err.message}`, 82, 'warn'))
+    _testSerialize()
+  } catch (serErr) {
+    addLog(emit(`⚠ Serialize with OT tables failed (${serErr.message}) — retrying without GSUB/GPOS`, 83, 'warn'))
+    try { delete font.tables.gsub } catch (_) {}
+    try { delete font.tables.gpos } catch (_) {}
   }
 
   // ── Export TTF ─────────────────────────────────────────────────────────────
   addLog(emit('กำลัง export TTF…', 86))
   let ttfBuffer
   try {
-    ttfBuffer = font.download(null)
-    if (!(ttfBuffer instanceof ArrayBuffer)) {
-      // opentype.js may return Buffer (Node) or ArrayBuffer (browser)
-      ttfBuffer = ttfBuffer.buffer ?? new Uint8Array(ttfBuffer).buffer
+    // toArrayBuffer() คือ API ที่ถูกต้องใน opentype.js 1.3.x
+    // download() trigger save-dialog จริงๆ ไม่ return ArrayBuffer
+    if (typeof font.toArrayBuffer === 'function') {
+      ttfBuffer = font.toArrayBuffer()
+    } else if (typeof font.toBuffer === 'function') {
+      // toBuffer() คืน Node Buffer — แปลงเป็น ArrayBuffer
+      const nodeBuf = font.toBuffer()
+      ttfBuffer = nodeBuf.buffer.slice(nodeBuf.byteOffset, nodeBuf.byteOffset + nodeBuf.byteLength)
+    } else {
+      throw new Error('opentype.js ไม่มี toArrayBuffer / toBuffer method')
     }
+
+    // Normalize: Node Buffer → ArrayBuffer
+    if (ttfBuffer && !(ttfBuffer instanceof ArrayBuffer)) {
+      if (ttfBuffer.buffer instanceof ArrayBuffer) {
+        ttfBuffer = ttfBuffer.buffer.slice(
+          ttfBuffer.byteOffset,
+          ttfBuffer.byteOffset + ttfBuffer.byteLength,
+        )
+      } else {
+        ttfBuffer = new Uint8Array(ttfBuffer).buffer
+      }
+    }
+
+    if (!ttfBuffer || ttfBuffer.byteLength < 100) {
+      throw new Error('output is empty or too small')
+    }
+
     addLog(emit(`✓ TTF: ${(ttfBuffer.byteLength / 1024).toFixed(1)} KB`, 90, 'success'))
   } catch (err) {
     throw new Error(`TTF export failed: ${err.message}`)
