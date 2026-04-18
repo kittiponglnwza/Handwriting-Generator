@@ -456,9 +456,12 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
   }, [analysisResult.glyphs, engineMode, onGlyphsUpdate])
 
   // ── Single source of truth: activeGlyphs ──────────────────────────────
+  // Vision mode: ใช้ tracedGlyphs (normalized status + svgPath) ถ้า trace เสร็จแล้ว
+  // ถ้ายังรอ trace อยู่ ใช้ visionEngineResults.glyphs เพื่อ render preview ไปก่อน
   const activeGlyphs = useMemo(() => {
-    if (engineMode === "vision" && visionEngineResults) {
-      return visionEngineResults.glyphs
+    if (engineMode === "vision") {
+      if (tracedGlyphs.length > 0) return tracedGlyphs          // trace done ✓
+      if (visionEngineResults) return visionEngineResults.glyphs // tracing in progress
     }
     return tracedGlyphs
   }, [engineMode, visionEngineResults, tracedGlyphs])
@@ -471,11 +474,50 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
     return chars.length > activeGlyphs.length
   }, [chars.length, activeGlyphs.length])
 
-  // ── Sync Vision Engine results to parent component ─────────────────────
+  // ── Sync Vision Engine results to parent — trace SVG paths first ──────
   useEffect(() => {
-    if (engineMode === "vision" && visionEngineResults) {
+    if (engineMode !== "vision" || !visionEngineResults) return
+
+    // glyphs จาก VisionEngine ยังไม่มี svgPath — ต้อง trace ก่อนส่งไป Step4
+    // ไม่งั้น buildGlyphMap ใน Step4 จะ filter ออกหมด (svgPath === null)
+    let canceled = false
+    setTracing(true)
+
+    const glyphsToTrace = visionEngineResults.glyphs.map(g => {
+      const canvas = g._normalizedCanvas || g._inkCanvas
+      return {
+        ...g,
+        _inkCanvas: canvas,
+        _inkW: canvas?.width  ?? g._inkW,
+        _inkH: canvas?.height ?? g._inkH,
+      }
+    })
+
+    traceAllGlyphs(glyphsToTrace).then(traced => {
+      if (canceled) return
+
+      // Map vision status → step4 status
+      // Vision engine: excellent/good/acceptable/poor/critical/error/missing
+      // Step4 expects: "ok" (valid) | "overflow" | "missing"
+      const normalized = traced.map(g => {
+        const vs = g.status
+        const s4 = ["excellent", "good", "acceptable"].includes(vs) ? "ok"
+                 : vs === "missing" ? "missing"
+                 : "overflow"
+        return { ...g, status: s4, _visionStatus: vs }
+      })
+
+      setTracedGlyphs(normalized)
+      onGlyphsUpdate(normalized)
+      setTracing(false)
+    }).catch(err => {
+      if (canceled) return
+      console.error("Tracing Vision Engine glyphs failed:", err)
       onGlyphsUpdate(visionEngineResults.glyphs)
-    }
+      setTracing(false)
+    })
+
+    return () => { canceled = true }
   }, [engineMode, visionEngineResults, onGlyphsUpdate])
 
   // ── Reg-dot failure pages ─────────────────────────────────────────────────
@@ -715,6 +757,8 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
           <div style={{ display: "flex", alignItems: "center", minHeight: 30 }}>
             {autoAligning
               ? <span style={{ fontSize: 11, color: C.amber }}>⟳ กำลัง re-extract ด้วย calibration ใหม่...</span>
+              : tracing
+              ? <span style={{ fontSize: 11, color: C.sage }}>✏ กำลัง trace SVG paths... (รอสักครู่ก่อนไป Step 4)</span>
               : autoInfo && <span style={{ fontSize: 11, color: C.inkLt }}>{autoInfo}</span>
             }
           </div>

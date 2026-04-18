@@ -86,7 +86,9 @@ function buildGlyphMap(glyphs) {
   const map = {}
   for (const [ch, variants] of Object.entries(byChar)) {
     const valid = variants.filter(g =>
-      g.status === "ok" &&
+      // รองรับทั้ง legacy status "ok" และ vision engine status ที่ normalize แล้ว
+      // _visionStatus มีค่า = ผ่าน vision engine, status=ok = ผ่าน legacy หรือ normalized
+      (g.status === "ok" || ["excellent", "good", "acceptable"].includes(g._visionStatus)) &&
       typeof g.svgPath === "string" &&
       g.svgPath.trim() !== "" && g.svgPath.trim() !== "M 0 0"
     )
@@ -362,7 +364,10 @@ export default function Step4({ glyphs = [] }) {
   // Find a raw glyph for thumbnail rendering
   const rawGlyph = useMemo(() => {
     if (!previewChar) return null
-    return glyphs.find(g => g.ch === previewChar && g.status === "ok") || null
+    return glyphs.find(g =>
+      g.ch === previewChar &&
+      (g.status === "ok" || ["excellent", "good", "acceptable"].includes(g._visionStatus))
+    ) || null
   }, [previewChar, glyphs])
 
   const handleBuild = useCallback(async () => {
@@ -596,7 +601,10 @@ export default function Step4({ glyphs = [] }) {
           </p>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))", gap: 8, maxHeight: 420, overflowY: "auto" }}>
             {entries.map(([ch, data]) => {
-              const g = glyphs.find(x => x.ch === ch && x.status === "ok")
+              const g = glyphs.find(x =>
+              x.ch === ch &&
+              (x.status === "ok" || ["excellent", "good", "acceptable"].includes(x._visionStatus))
+            )
               const hasSvg = g?.svgPath && g.svgPath.trim() !== "" && g.svgPath.trim() !== "M 0 0"
               return (
                 <button key={ch} onClick={() => { setPreviewChar(ch); setActiveTab("overview") }} style={{
