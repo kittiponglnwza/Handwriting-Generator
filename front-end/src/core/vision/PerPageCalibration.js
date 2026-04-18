@@ -19,6 +19,7 @@ export class PerPageCalibration {
     const angles = []
     const step = 4 // Sample every 4 pixels for performance
     const data = imageData.data  // ✅ fix: ต้องใช้ .data
+    let totalEdgeCount = 0  // ✅ fix: ต้องนับ total นอก loop ไม่ใช่อ่าน edgeCount จาก iteration สุดท้าย
     
     // Detect horizontal edges
     for (let y = step; y < height - step; y += step * 4) {
@@ -43,6 +44,7 @@ export class PerPageCalibration {
       
       if (edgeCount > 0) {
         angles.push({ y, strength: edgeSum / edgeCount })
+        totalEdgeCount += edgeCount  // ✅ fix: สะสม edge count ทุก row
       }
     }
 
@@ -64,7 +66,7 @@ export class PerPageCalibration {
     
     return {
       rotation: Math.max(-5, Math.min(5, rotation)), // Clamp to ±5°
-      confidence: Math.min(1, edgeCount / (width * height / (step * step)))
+      confidence: Math.min(1, totalEdgeCount / (width * height / (step * step)))  // ✅ fix: ใช้ totalEdgeCount
     }
   }
 

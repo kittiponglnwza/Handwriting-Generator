@@ -155,9 +155,11 @@ export default function QADashboard({ glyphs, qaReport, onGlyphSelect, onRetryEx
         </div>
         
         <div style={{ background: C.bgMuted, borderRadius: 8, padding: 12 }}>
-          <div style={{ fontSize: 12, color: C.inkLt, marginBottom: 4 }}>ลดลงจากเดิม</div>
+          <div style={{ fontSize: 12, color: C.inkLt, marginBottom: 4 }}>ดี / ดีเยี่ยม</div>
           <div style={{ fontSize: 24, fontWeight: 600, color: C.sage }}>
-            -{Math.round((qaReport.overflow / 99) * 100)}%
+            {qaReport.total > 0
+              ? Math.round(((qaReport.excellent + qaReport.good) / qaReport.total) * 100)
+              : 0}%
           </div>
         </div>
       </div>

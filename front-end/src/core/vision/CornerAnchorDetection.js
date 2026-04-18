@@ -86,6 +86,7 @@ export class CornerAnchorDetection {
   scoreCornerPattern(imageData, width, height, centerX, centerY, corner) {
     let score = 0
     const sampleSize = 15
+    const data = imageData.data  // ✅ fix: ต้องใช้ .data
     
     for (let dy = -sampleSize; dy <= sampleSize; dy += 2) {
       for (let dx = -sampleSize; dx <= sampleSize; dx += 2) {
@@ -95,7 +96,7 @@ export class CornerAnchorDetection {
         if (x < 0 || x >= width || y < 0 || y >= height) continue
         
         const idx = (y * width + x) * 4
-        const lum = imageData[idx] * 0.299 + imageData[idx + 1] * 0.587 + imageData[idx + 2] * 0.114
+        const lum = data[idx] * 0.299 + data[idx + 1] * 0.587 + data[idx + 2] * 0.114
         
         // Expect dark pixels in L-shape pattern based on corner
         const isDark = lum < 120
@@ -213,12 +214,13 @@ export class CornerAnchorDetection {
     // Solve using simple least squares approximation
     const matrix = this.leastSquares(A, B)
     
-    // Add perspective scale factors (assuming no perspective distortion for now)
-    // Return 3x3 homography matrix for affine transform
+    // Return as flat 9-element array [h11..h33] matching transformGridPoint destructuring:
+    // const [h11, h12, h13, h21, h22, h23, h31, h32, h33] = this.gridMatrix
+    // matrix = [h11, h12, h13, h21, h22, h23, h31, h32] (8 values, h33 = 1)
     return [
-      [matrix[0], matrix[1], matrix[2]],
-      [0, 1, 0],  // h33 = 1 for affine transform
-      [0, 0, 1]
+      matrix[0], matrix[1], matrix[2],  // h11, h12, h13
+      matrix[3], matrix[4], matrix[5],  // h21, h22, h23
+      matrix[6], matrix[7], 1           // h31, h32, h33
     ]
   }
 
