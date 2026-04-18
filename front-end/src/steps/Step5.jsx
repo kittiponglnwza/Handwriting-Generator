@@ -590,6 +590,7 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [] }) {
     if (!trimmed) return 0
     return trimmed.split(/\s+/).filter(Boolean).length
   }, [design.text])
+  const charCount = design.text.length
 
   const applyFontBuffers = useCallback(async ({ woffBuffer, ttfBuffer, sourceLabel }) => {
     if (!woffBuffer && !ttfBuffer) return false
@@ -857,6 +858,13 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [] }) {
     setSavedStyles((prev) => prev.filter((item) => item.id !== id))
   }
 
+  const clearText = () => {
+    setDesign({
+      text: "",
+      seed: design.seed + 1,
+    })
+  }
+
   return (
     <div ref={stageRef} className="step5-smart flex h-full min-h-[640px] flex-col gap-3 bg-transparent p-3 md:p-4">
       <Step5Toolbar
@@ -883,9 +891,56 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [] }) {
         onChange={handleUploadFonts}
       />
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[290px_minmax(0,1fr)_330px]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[330px_minmax(0,1fr)] 2xl:grid-cols-[330px_minmax(0,1fr)_330px]">
         <aside className="step5-scroll flex min-h-0 flex-col gap-3 overflow-y-auto pb-1">
-          <SidebarCard title="Template Library" subtitle="Quick starter copy for instant previews">
+          <SidebarCard title="Quick Start" subtitle="Use this 3-step flow like Canva">
+            <div className="space-y-2">
+              {[
+                "พิมพ์ข้อความหรือเลือก Template",
+                "เลือก Preset แล้วปรับสไตล์หลัก",
+                "Export PNG/PDF จากแถบด้านบน",
+              ].map((step, idx) => (
+                <div key={step} className="flex items-start gap-2 rounded-xl bg-slate-50 px-3 py-2">
+                  <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-900 text-[11px] font-bold text-white">
+                    {idx + 1}
+                  </span>
+                  <span className="text-xs font-medium text-slate-600">{step}</span>
+                </div>
+              ))}
+            </div>
+          </SidebarCard>
+
+          <SidebarCard title="1) Text" subtitle="Thai / English / Number / Symbol / Multiline">
+            <textarea
+              value={design.text}
+              onChange={(event) => setDesign({ text: event.target.value })}
+              className="min-h-[200px] w-full resize-y rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-slate-400"
+              placeholder="Type your message..."
+            />
+            <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-slate-500">
+              <span>Words: {wordCount}</span>
+              <span className="text-right">Chars: {charCount}</span>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={clearText}
+                disabled={charCount === 0}
+                className="h-9 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+              >
+                Clear Text
+              </button>
+              <button
+                type="button"
+                onClick={() => setDesign({ seed: design.seed + 1 })}
+                className="h-9 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+              >
+                Shuffle Feel
+              </button>
+            </div>
+          </SidebarCard>
+
+          <SidebarCard title="2) Templates" subtitle="Start quickly with ready-made text">
             <div className="grid gap-2">
               {TEMPLATE_ITEMS.map((item) => (
                 <button
@@ -900,8 +955,8 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [] }) {
             </div>
           </SidebarCard>
 
-          <SidebarCard title="Style Presets" subtitle="Canva-like one-click looks">
-            <div className="grid gap-2">
+          <SidebarCard title="3) Presets" subtitle="One click look presets">
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
               {STYLE_PRESETS.map((preset) => (
                 <button
                   key={preset.id}
@@ -915,47 +970,7 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [] }) {
             </div>
           </SidebarCard>
 
-          <SidebarCard title="Export Options" subtitle="Production-ready output set">
-            <div className="grid gap-2">
-              <button
-                type="button"
-                onClick={handleExportPng}
-                className="h-9 rounded-xl border border-slate-900 bg-slate-900 px-3 text-xs font-semibold text-white transition hover:bg-slate-700"
-              >
-                Download PNG
-              </button>
-              <button
-                type="button"
-                onClick={handleExportTransparentPng}
-                className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-              >
-                Transparent PNG
-              </button>
-              <button
-                type="button"
-                onClick={handleExportPdf}
-                className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-              >
-                Download PDF
-              </button>
-              <button
-                type="button"
-                onClick={handleDownloadFont}
-                className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-              >
-                Download Font Files
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveDesignJson}
-                className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-              >
-                Save Design JSON
-              </button>
-            </div>
-          </SidebarCard>
-
-          <SidebarCard title="Saved Styles" subtitle="Keep your favorite visual presets">
+          <SidebarCard title="Saved Styles" subtitle="Reuse your own favorite setup">
             <div className="mb-2 flex gap-2">
               <input
                 type="text"
@@ -1001,34 +1016,40 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [] }) {
           </SidebarCard>
         </aside>
 
-        <Step5Preview
-          design={design}
-          setDesign={setDesign}
-          pageSize={pageSize}
-          previewLines={previewLines}
-          zoom={zoom}
-          setZoom={setZoom}
-          pan={pan}
-          setPan={setPan}
-          fontState={fontState}
-          onToggleFullscreen={handleToggleFullscreen}
-        />
+        <div className="min-h-0 flex flex-col gap-3">
+          <Step5Preview
+            design={design}
+            setDesign={setDesign}
+            pageSize={pageSize}
+            previewLines={previewLines}
+            zoom={zoom}
+            setZoom={setZoom}
+            pan={pan}
+            setPan={setPan}
+            fontState={fontState}
+            onToggleFullscreen={handleToggleFullscreen}
+          />
 
-        <aside className="step5-scroll flex min-h-0 flex-col gap-3 overflow-y-auto pb-1">
-          <SidebarCard title="Text Input" subtitle="Thai, English, numbers, symbols and multiline">
-            <textarea
-              value={design.text}
-              onChange={(event) => setDesign({ text: event.target.value })}
-              className="min-h-[180px] w-full resize-y rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-slate-400"
-              placeholder="Type here..."
-            />
-            <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-slate-500">
-              <span>Words: {wordCount}</span>
-              <span className="text-right">Chars: {design.text.length}</span>
+          <section className="step5-card rounded-2xl border border-white/70 bg-white/80 p-3 text-xs text-slate-600 shadow-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-600">
+                Glyph Source: {hasGlyphSource ? glyphSourceLabel : "No glyphs yet"}
+              </span>
+              <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-600">
+                Size: {pageSize.width} x {pageSize.height}
+              </span>
+              <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-600">
+                Zoom: {Math.round(zoom * 100)}%
+              </span>
+              <div className="ml-auto rounded-full bg-slate-900 px-2 py-1 font-semibold text-white">
+                Ready to export
+              </div>
             </div>
-          </SidebarCard>
+          </section>
+        </div>
 
-          <SidebarCard title="Text Controls" subtitle="Canva style live control panel">
+        <aside className="step5-scroll flex min-h-0 flex-col gap-3 overflow-y-auto pb-1 xl:col-span-2 2xl:col-span-1">
+          <SidebarCard title="Basic Controls" subtitle="Fast controls for everyday use">
             <div className="space-y-3">
               <div>
                 <FieldLabel value={`${design.fontSize}px`}>Font Size</FieldLabel>
@@ -1057,6 +1078,16 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [] }) {
               </div>
 
               <div>
+                <FieldLabel value={design.textColor}>Text Color</FieldLabel>
+                <input
+                  type="color"
+                  value={design.textColor}
+                  onChange={(event) => setDesign({ textColor: event.target.value })}
+                  className="h-9 w-full cursor-pointer rounded-xl border border-slate-200 bg-white p-1"
+                />
+              </div>
+
+              <div>
                 <FieldLabel value={design.letterSpacing.toFixed(2)}>Letter Spacing</FieldLabel>
                 <input
                   type="range"
@@ -1066,16 +1097,6 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [] }) {
                   value={design.letterSpacing}
                   onChange={(event) => setDesign({ letterSpacing: Number(event.target.value) })}
                   className="w-full accent-slate-700"
-                />
-              </div>
-
-              <div>
-                <FieldLabel value={design.textColor}>Text Color</FieldLabel>
-                <input
-                  type="color"
-                  value={design.textColor}
-                  onChange={(event) => setDesign({ textColor: event.target.value })}
-                  className="h-9 w-full cursor-pointer rounded-xl border border-slate-200 bg-white p-1"
                 />
               </div>
 
@@ -1142,6 +1163,31 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [] }) {
                   Italic Mock
                 </button>
               </div>
+            </div>
+          </SidebarCard>
+
+          <SidebarCard title="Advanced Controls" subtitle="Tune natural handwriting behavior">
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDesign({ baselineWobble: !design.baselineWobble })}
+                  className={`h-9 rounded-xl border text-xs font-semibold transition ${
+                    design.baselineWobble
+                      ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                  }`}
+                >
+                  Baseline Wobble
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDesign({ seed: design.seed + 1 })}
+                  className="h-9 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                >
+                  Shuffle Variants
+                </button>
+              </div>
 
               <div>
                 <FieldLabel value={`${Math.round(design.randomness)}%`}>Randomness Intensity</FieldLabel>
@@ -1168,31 +1214,10 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [] }) {
                   className="w-full accent-slate-700"
                 />
               </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setDesign({ baselineWobble: !design.baselineWobble })}
-                  className={`h-9 rounded-xl border text-xs font-semibold transition ${
-                    design.baselineWobble
-                      ? "border-emerald-500 bg-emerald-50 text-emerald-700"
-                      : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
-                  }`}
-                >
-                  Baseline Wobble
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDesign({ seed: design.seed + 1 })}
-                  className="h-9 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-                >
-                  Shuffle Variants
-                </button>
-              </div>
             </div>
           </SidebarCard>
 
-          <SidebarCard title="Font Loader" subtitle="Step 4 output integration">
+          <SidebarCard title="Font & Assets" subtitle="Connect font from Step 4 and save artifacts">
             <div className="space-y-2 text-xs text-slate-600">
               <p>
                 Auto search paths:
@@ -1205,20 +1230,28 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [] }) {
                 type="button"
                 onClick={() => fontInputRef.current?.click()}
                 className="h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-              >
-                Upload MyHandwriting Files
-              </button>
+                >
+                  Upload MyHandwriting Files
+                </button>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={handleDownloadFont}
+                    className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                  >
+                    Download Font
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveDesignJson}
+                    className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                  >
+                    Save JSON
+                  </button>
+                </div>
               <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
                 {fontState.message}
               </p>
-            </div>
-          </SidebarCard>
-
-          <SidebarCard title="Project Data" subtitle="Wizard continuity check">
-            <div className="space-y-1 text-xs text-slate-600">
-              <p>Glyph source: {hasGlyphSource ? glyphSourceLabel : "No glyphs yet"}</p>
-              <p>Preview size: {pageSize.width} × {pageSize.height}</p>
-              <p>Zoom: {Math.round(zoom * 100)}%</p>
             </div>
           </SidebarCard>
         </aside>

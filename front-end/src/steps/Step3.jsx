@@ -43,8 +43,19 @@ import { PerformanceGovernor } from "../engine/PerformanceGovernor.js"
 import { GlyphWorkerAdapter } from "../workers/GlyphWorkerAdapter.js"
 import { GeometryError, PipelineError } from "../engine/errors/BaseError.js"
 
+// NEW: Vision Engine imports
+import { VisionEngine } from "../core/vision/VisionEngine.js"
+import QADashboard from "../components/QADashboard.jsx"
+
 export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
   // ── Guard: should never render without parsedFile, but be safe ────────────
+  console.log('=== STEP3 COMPONENT LOADING ===')
+  console.log('ParsedFile:', parsedFile)
+  
+  // Test object rendering - this should cause the error
+  const testObject = { label: "Test", val: 123, color: "red" }
+  console.log('Test object:', testObject)
+  
   const chars = parsedFile?.characters ?? []
 
   // NEW: State machine integration
@@ -63,10 +74,14 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
   const [telemetryData, setTelemetryData] = useState({})
   const [pageVersion, setPageVersion] = useState(0)
   const [tracing, setTracing] = useState(false)
+  const [engineMode, setEngineMode] = useState("vision") // "vision" | "legacy"
+  const [visionEngineResults, setVisionEngineResults] = useState(null)
+  const [showQADashboard, setShowQADashboard] = useState(true)
 
   const pageRef = useRef(null)
   const stateMachineRef = useRef(null)
   const workerAdapterRef = useRef(null)
+  const visionEngineRef = useRef(null)
 
   // ── Initialize state machine and worker adapter ─────────────────────────────
   useEffect(() => {
@@ -93,11 +108,24 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
     stateMachineRef.current = stateMachine
     workerAdapterRef.current = workerAdapter
     
+    // Initialize Vision Engine with error handling
+    try {
+      console.log('Initializing Vision Engine...')
+      visionEngineRef.current = new VisionEngine()
+      console.log('Vision Engine initialized successfully')
+      console.log('Vision Engine methods available:', Object.getOwnPropertyNames(visionEngineRef.current))
+    } catch (error) {
+      console.error('Failed to initialize Vision Engine:', error)
+      console.error('Error stack:', error.stack)
+      setError(`Vision Engine initialization failed: ${error.message}`)
+    }
+    
     
     return () => {
       unsubscribe()
       telemetryUnsubscribe()
       workerAdapter.cleanup()
+      visionEngineRef.current?.reset()
     }
   }, [])
 
@@ -139,7 +167,56 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
     }
   }, [parsedFile, chars.length])
 
-  // NEW: Engine event handlers (no business logic)
+  // NEW: Vision Engine handler (production quality extraction)
+  const handleVisionEngineExtraction = useCallback(async () => {
+    console.log('=== VISION ENGINE EXTRACTION STARTED ===')
+    console.log('PageRef current:', pageRef.current)
+    console.log('Vision Engine ref:', visionEngineRef.current)
+    console.log('Chars length:', chars.length)
+    console.log('Engine mode:', engineMode)
+    
+    if (!pageRef.current?.pages || !visionEngineRef.current) {
+      console.error('Vision Engine extraction aborted: missing pages or engine')
+      return
+    }
+    
+    console.log('Setting autoAligning to true...')
+    setAutoAligning(true)
+    setError("")
+    
+    try {
+      console.log('About to call processPages...')
+      const results = await visionEngineRef.current.processPages(
+        pageRef.current.pages,
+        chars,
+        calibration
+      )
+      
+      console.log('Vision Engine results received:', results)
+      
+      console.log('Setting visionEngineResults...')
+      setVisionEngineResults(results)
+      console.log('Vision Engine results set!')
+      
+      // Update auto info with Vision Engine results
+      const avgConfidence = (results.qaReport.averageConfidence * 100).toFixed(1)
+      const infoMessage = `Vision Engine: ${results.glyphs.length} glyphs extracted (avg confidence ${avgConfidence}%, processing time ${results.processingTime.toFixed(0)}ms)`
+      console.log('Setting auto info:', infoMessage)
+      setAutoInfo(infoMessage)
+      
+      // Check memory usage
+      PerformanceGovernor.memoryMonitor.checkMemory()
+    } catch (error) {
+      console.error('Vision Engine extraction failed:', error)
+      console.error('Error details:', error.stack)
+      setError(`Vision Engine error: ${error.message}`)
+    } finally {
+      console.log('Setting autoAligning to false...')
+      setAutoAligning(false)
+    }
+  }, [chars, calibration])
+
+  // NEW: Legacy Engine event handlers (fallback)
   const handleStartExtraction = useCallback(async () => {
     if (!pageRef.current || !stateMachineRef.current) return
     
@@ -153,8 +230,7 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
       }
       
       const result = await Step3Controller.executeFullPipeline(pageData, calibration, stateMachineRef.current)
-      setTracedGlyphs(result)
-      onGlyphsUpdate(result)
+      // Don't setTracedGlyphs here - let activeGlyphs handle it
       
       // Check memory usage
       PerformanceGovernor.memoryMonitor.checkMemory()
@@ -167,7 +243,32 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
         setError(`Unexpected error: ${error.message}`)
       }
     }
-  }, [chars, calibration, onGlyphsUpdate])
+  }, [chars, calibration])
+
+  // ── Auto-run Vision Engine when pages are loaded ───────────────────────
+  useEffect(() => {
+    console.log('=== AUTO-RUN VISION ENGINE CHECK ===')
+    console.log('Engine mode:', engineMode)
+    console.log('Has pages:', pageRef.current?.pages?.length > 0)
+    console.log('Chars length:', chars.length)
+    console.log('Has results:', !!visionEngineResults)
+    console.log('Is aligning:', autoAligning)
+    console.log('Should run:', engineMode === "vision" && pageRef.current?.pages?.length > 0 && chars.length > 0 && !visionEngineResults && !autoAligning)
+    
+    if (engineMode === "vision" && pageRef.current?.pages?.length > 0 && chars.length > 0 && !visionEngineResults && !autoAligning) {
+      console.log('*** AUTO-RUNNING VISION ENGINE ***')
+      handleVisionEngineExtraction()
+    } else {
+      console.log('*** NOT RUNNING VISION ENGINE ***')
+      console.log('Reason:', {
+        mode: engineMode,
+        hasPages: pageRef.current?.pages?.length > 0,
+        hasChars: chars.length > 0,
+        hasResults: !!visionEngineResults,
+        isAligning: autoAligning
+      })
+    }
+  }, [engineMode, pageRef.current?.pages?.length, chars.length, visionEngineResults, autoAligning, handleVisionEngineExtraction])
 
   const handleAutoAlign = useCallback(async () => {
     if (!pageRef.current) return
@@ -226,6 +327,11 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
 
   // ── Glyph extraction (runs on calibration / page changes) ────────────────
   const analysisResult = useMemo(() => {
+    // DISABLE legacy pipeline when Vision Engine is active
+    if (engineMode === "vision") {
+      return { glyphs: [], pageCharsCount: 0, maxCells: 0, pagesUsed: 0, totalPages: 0 }
+    }
+    
     void pageVersion  // reactive on version bump
     const source = pageRef.current
     if (!source?.pages?.length || chars.length === 0) {
@@ -304,10 +410,13 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
     allGlyphs.sort((a, b) => a.index - b.index)
     const glyphs = removedIds.size === 0 ? allGlyphs : allGlyphs.filter(g => !removedIds.has(g.id))
     return { glyphs, pageCharsCount: allGlyphs.length, maxCells, pagesUsed, totalPages: source.pages.length }
-  }, [chars, pageVersion, calibration, removedIds])
+  }, [chars, pageVersion, calibration, removedIds, engineMode])
 
   // ── Feed analysisResult into tracedGlyphs automatically ─────────────────
   useEffect(() => {
+    // DISABLE legacy processing when Vision Engine is active
+    if (engineMode === "vision") return
+    
     if (analysisResult.glyphs.length === 0) {
       setTracedGlyphs([])
       return
@@ -321,15 +430,30 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
       setTracing(false)
     })
     return () => { canceled = true }
-  }, [analysisResult.glyphs])
+  }, [analysisResult.glyphs, engineMode, onGlyphsUpdate])
+
+  // ── Single source of truth: activeGlyphs ──────────────────────────────
+  const activeGlyphs = useMemo(() => {
+    if (engineMode === "vision" && visionEngineResults) {
+      return visionEngineResults.glyphs
+    }
+    return tracedGlyphs
+  }, [engineMode, visionEngineResults, tracedGlyphs])
 
   const displayGlyphs = useMemo(() => {
-    return removedIds.size === 0 ? tracedGlyphs : tracedGlyphs.filter(g => !removedIds.has(g.id))
-  }, [tracedGlyphs, removedIds])
+    return removedIds.size === 0 ? activeGlyphs : activeGlyphs.filter(g => !removedIds.has(g.id))
+  }, [activeGlyphs, removedIds])
 
   const isPartialRead = useMemo(() => {
-    return chars.length > tracedGlyphs.length
-  }, [chars.length, tracedGlyphs.length])
+    return chars.length > activeGlyphs.length
+  }, [chars.length, activeGlyphs.length])
+
+  // ── Sync Vision Engine results to parent component ─────────────────────
+  useEffect(() => {
+    if (engineMode === "vision" && visionEngineResults) {
+      onGlyphsUpdate(visionEngineResults.glyphs)
+    }
+  }, [engineMode, visionEngineResults, onGlyphsUpdate])
 
   // ── Reg-dot failure pages ─────────────────────────────────────────────────
   const regDotsFailedPages = useMemo(() => {
@@ -344,11 +468,29 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
 
 
   const summary = useMemo(() => {
+    // Use Vision Engine QA report if available, fallback to legacy counting
+    if (visionEngineResults?.qaReport) {
+      const qa = visionEngineResults.qaReport
+      return {
+        ok: qa.excellent + qa.good,
+        missing: qa.missing,
+        overflow: qa.overflow,
+        total: qa.total,
+        excellent: qa.excellent,
+        good: qa.good,
+        acceptable: qa.acceptable,
+        poor: qa.poor,
+        critical: qa.critical,
+        error: qa.error
+      }
+    }
+    
+    // Legacy counting
     const ok = displayGlyphs.filter(g => g.status === "ok").length
     const missing = displayGlyphs.filter(g => g.status === "missing").length
     const overflow = displayGlyphs.filter(g => g.status === "overflow").length
     return { ok, missing, overflow, total: displayGlyphs.length }
-  }, [displayGlyphs])
+  }, [displayGlyphs, visionEngineResults])
 
   const activeGlyph = useMemo(() => 
     displayGlyphs.find(g => g.id === activeId) ?? null, 
@@ -365,16 +507,29 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
     ok:       { border: C.sageMd,  bg: C.bgCard,  textColor: C.sage,  label: "OK" },
     missing:  { border: C.blushMd, bg: C.blushLt, textColor: C.blush, label: "Missing" },
     overflow: { border: C.amberMd, bg: C.amberLt, textColor: C.amber, label: "Overflow" },
+    excellent: { border: C.sageMd,  bg: C.sageLt, textColor: C.sage, label: "ดีเยี่ยม" },
+    good:     { border: C.sageMd, bg: C.sageLt, textColor: C.sage, label: "ดี" },
+    acceptable: { border: C.amberMd, bg: C.amberLt, textColor: C.amber, label: "พอใช้" },
+    poor:     { border: C.amberMd, bg: C.amberLt, textColor: C.amber, label: "แย่" },
+    critical:  { border: C.blushMd, bg: C.blushLt, textColor: C.blush, label: "วิกฤต" },
+    error:    { border: C.blushMd, bg: C.blushLt, textColor: C.blush, label: "ผิดพลาด" },
   }
 
-  // ── Guards ────────────────────────────────────────────────────────────────
+  // ── Guards ────────────────────────────────────────────────────────
+  console.log('=== STEP3 RENDER CHECK ===')
+  console.log('ParsedFile exists:', !!parsedFile)
+  console.log('About to check guard...')
+  
   if (!parsedFile) {
+    console.log('No parsedFile - showing guard message')
     return (
       <div className="fade-up">
         <InfoBox color="amber">กรุณาอัปโหลดไฟล์ PDF ใน Step 2 ก่อน</InfoBox>
       </div>
     )
   }
+  
+  console.log('ParsedFile exists - continuing to render...')
 
   if (chars.length === 0) {
     return (
@@ -409,18 +564,30 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
       </div>
 
       {/* Summary stats */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 20 }}>
-        {[
+      <div style={{ display: "grid", gridTemplateColumns: engineMode === "vision" && visionEngineResults ? "repeat(auto-fit, minmax(80px, 1fr))" : "repeat(4,1fr)", gap: 10, marginBottom: 20 }}>
+        {(engineMode === "vision" && visionEngineResults ? [
+          { label: "ดีเยี่ยม", val: summary.excellent, color: C.sage },
+          { label: "ดี", val: summary.good, color: C.sage },
+          { label: "พอใช้", val: summary.acceptable, color: C.amber },
+          { label: "แย่", val: summary.poor, color: C.amber },
+          { label: "วิกฤต", val: summary.critical, color: C.blush },
+          { label: "Overflow", val: summary.overflow, color: C.amber },
+          { label: "หาย", val: summary.missing, color: C.blush },
+          { label: "ทั้งหมด", val: summary.total, color: C.ink },
+        ] : [
           { label: "OK", val: summary.ok, color: C.sage },
           { label: "Missing", val: summary.missing, color: C.blush },
           { label: "Overflow", val: summary.overflow, color: C.amber },
           { label: "ทั้งหมด", val: summary.total, color: C.ink },
-        ].map(s => (
-          <div key={s.label} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 8px", textAlign: "center" }}>
-            <p style={{ fontSize: 22, fontWeight: 300, color: s.color, fontFamily: "'DM Serif Display',serif" }}>{s.val}</p>
-            <p style={{ fontSize: 10, color: C.inkLt, marginTop: 4, letterSpacing: "0.05em" }}>{s.label}</p>
-          </div>
-        ))}
+        ]).map(s => {
+          const style = stStyle[s.label] || stStyle.ok
+          return (
+            <div key={s.label} style={{ background: style.bg, border: `1px solid ${style.border}`, borderRadius: 12, padding: "12px 8px", textAlign: "center" }}>
+              <p style={{ fontSize: (engineMode === "vision" && visionEngineResults) ? 18 : 22, fontWeight: 300, color: style.textColor, fontFamily: "'DM Serif Display',serif" }}>{s.val}</p>
+              <p style={{ fontSize: 10, color: C.inkLt, marginTop: 4, letterSpacing: "0.05em" }}>{s.label}</p>
+            </div>
+          )
+        })}
       </div>
 
       {/* Source info */}
@@ -503,11 +670,15 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
             {autoInfo && <span style={{ fontSize: 11, color: C.inkLt }}>{autoInfo}</span>}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <Btn onClick={handleAutoAlign}                                     variant="primary" size="sm" disabled={autoAligning || pipelineState === PipelineStates.EXTRACTING}>{autoAligning ? "กำลังจัดอัตโนมัติ..." : "จัดอัตโนมัติ"}</Btn>
+            <Btn onClick={engineMode === "vision" ? handleVisionEngineExtraction : handleAutoAlign}   variant="primary" size="sm" disabled={autoAligning || pipelineState === PipelineStates.EXTRACTING}>
+              {autoAligning ? "กำลังประมวลผล..." : (engineMode === "vision" ? "ดึงด้วย Vision Engine" : "จัดอัตโนมัติ")}
+            </Btn>
             <Btn onClick={() => setRemovedIds(new Set())}                   variant="ghost"   size="sm" disabled={removedIds.size === 0}>คืนค่าตัวที่ลบ</Btn>
             <Btn onClick={() => setCalibration(ZERO_CALIBRATION)}        variant="ghost"   size="sm">รีเซ็ตกริด</Btn>
             <Btn onClick={() => setShowDebug(v => !v)}                      variant="ghost"   size="sm">{showDebug ? "ซ่อน Overlay" : "ดู Grid Overlay"}</Btn>
             <Btn onClick={() => setShowOverlay(v => !v)}                    variant="ghost"   size="sm">{showOverlay ? "ซ่อน Debug" : "Debug Overlay"}</Btn>
+            <Btn onClick={() => setEngineMode(engineMode === "vision" ? "legacy" : "vision")}          variant="ghost"   size="sm">{engineMode === "vision" ? "Vision Engine" : "Legacy"}</Btn>
+            <Btn onClick={() => setShowQADashboard(v => !v)}          variant="ghost"   size="sm">{showQADashboard ? "ซ่อน QA" : "QA Dashboard"}</Btn>
           </div>
         </div>
       </div>
@@ -536,10 +707,22 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
         </div>
       )}
 
+      {/* QA Dashboard */}
+      {showQADashboard && visionEngineResults && engineMode === "vision" && (
+        <QADashboard
+          glyphs={displayGlyphs}
+          qaReport={visionEngineResults.qaReport}
+          onGlyphSelect={setActiveId}
+          onRetryExtraction={handleVisionEngineExtraction}
+        />
+      )}
+
       {/* Glyph grid - now state-driven */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(88px,1fr))", gap: 8 }}>
         {displayGlyphs.map(g => {
-          const s = stStyle[g.status]
+          // Use Vision Engine status if available, fallback to legacy status
+    const glyphStatus = g.confidence?.status || g.status
+    const s = stStyle[glyphStatus]
           const isActive = activeId === g.id
           return (
             <div key={g.id} className="glyph-card" onClick={() => setActiveId(isActive ? null : g.id)}
@@ -554,7 +737,14 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
               </button>
               <p style={{ fontSize: 12, fontWeight: 500, color: C.ink }}>{g.ch}</p>
               <p style={{ fontSize: 9, color: C.inkLt, marginTop: 1 }}>HG{String(g.index).padStart(3,"0")}</p>
-              <p style={{ fontSize: 10, color: s.textColor, marginTop: 2 }}>{s.label}</p>
+              <p style={{ fontSize: 10, color: s.textColor, marginTop: 2 }}>
+                {s.label}
+                {g.confidence && (
+                  <span style={{ fontSize: 8, color: C.inkLt, marginLeft: 2 }}>
+                    ({(g.confidence.overall * 100).toFixed(0)}%)
+                  </span>
+                )}
+              </p>
             </div>
           )
         })}
@@ -570,8 +760,12 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
             <div style={{ lineHeight: 1.8 }}>
               <div>เป้าหมาย: <b style={{ color: C.ink }}>{activeGlyph.ch}</b> • ลำดับช่อง {activeGlyph.index}</div>
               <div>รหัสช่อง: <b style={{ color: C.ink }}>HG{String(activeGlyph.index).padStart(3,"0")}</b></div>
-              <div>สถานะ: <b style={{ color: C.sage }}>OK</b></div>
-              <div>Ink coverage: {(activeGlyph.inkRatio * 100).toFixed(2)}% • Border touch: {(activeGlyph.edgeRatio * 100).toFixed(2)}%</div>
+              <div>สถานะ: <b style={{ color: C.sage }}>{activeGlyph.confidence?.status || activeGlyph.status}</b></div>
+              {activeGlyph.confidence ? (
+                <div>ความมั่นใจ: <b style={{ color: C.ink }}>{(activeGlyph.confidence.overall * 100).toFixed(1)}%</b></div>
+              ) : (
+                <div>Ink coverage: {(activeGlyph.inkRatio * 100).toFixed(2)}% • Border touch: {(activeGlyph.edgeRatio * 100).toFixed(2)}%</div>
+              )}
             </div>
           </div>
         </div>
@@ -591,7 +785,10 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
               <img src={zoomGlyph.preview} alt={`Zoom ${zoomGlyph.ch}`} style={{ width: "min(520px,82vw)", height: "auto", objectFit: "contain" }} />
             </div>
             <p style={{ marginTop: 10, fontSize: 12, color: C.inkMd }}>
-              Ink coverage {(zoomGlyph.inkRatio * 100).toFixed(2)}% • Border touch {(zoomGlyph.edgeRatio * 100).toFixed(2)}%
+              {zoomGlyph.confidence 
+                ? `ความมั่นใจ ${(zoomGlyph.confidence.overall * 100).toFixed(1)}% • สถานะ ${zoomGlyph.confidence.status}`
+                : `Ink coverage ${(zoomGlyph.inkRatio * 100).toFixed(2)}% • Border touch ${(zoomGlyph.edgeRatio * 100).toFixed(2)}%`
+              }
             </p>
           </div>
         </div>

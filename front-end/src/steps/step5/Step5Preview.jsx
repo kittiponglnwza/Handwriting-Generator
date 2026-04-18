@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react"
+﻿import { useMemo, useRef, useState } from "react"
 
 const ZOOM_MIN = 0.25
 const ZOOM_MAX = 2.8
@@ -168,9 +168,9 @@ export default function Step5Preview({
           onChange={(event) => setDesign({ pagePreset: event.target.value })}
           className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 outline-none transition focus:border-slate-400"
         >
-          <option value="a4">A4 (794×1123)</option>
-          <option value="square">Square (1080×1080)</option>
-          <option value="story">Story (1080×1920)</option>
+          <option value="a4">A4 (794 x 1123)</option>
+          <option value="square">Square (1080 x 1080)</option>
+          <option value="story">Story (1080 x 1920)</option>
           <option value="custom">Custom</option>
         </select>
 
@@ -279,3 +279,4 @@ export default function Step5Preview({
     </section>
   )
 }
+
