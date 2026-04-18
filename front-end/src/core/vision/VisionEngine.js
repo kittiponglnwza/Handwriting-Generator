@@ -486,10 +486,11 @@ export class VisionEngine {
       return originalStatus
     }
     
-    if (confidence >= 0.9) return 'excellent'
-    if (confidence >= 0.75) return 'good'
-    if (confidence >= 0.6) return 'acceptable'
-    if (confidence >= 0.4) return 'poor'
+    // ต้องตรงกับ ConfidenceScoring.thresholds ที่อัปเดตแล้ว
+    if (confidence >= 0.85) return 'excellent'
+    if (confidence >= 0.65) return 'good'
+    if (confidence >= 0.45) return 'acceptable'
+    if (confidence >= 0.30) return 'poor'
     return 'critical'
   }
 

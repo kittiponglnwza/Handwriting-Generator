@@ -8,18 +8,18 @@
 export class ConfidenceScoring {
   constructor() {
     this.thresholds = {
-      excellent: 0.9,
-      good: 0.75,
-      acceptable: 0.6,
-      poor: 0.4,
-      critical: 0.2
+      excellent: 0.85,  // ลดจาก 0.90 — handwriting ที่ดีมากควรได้ excellent
+      good: 0.65,       // ลดจาก 0.75 — handwriting ปกติควรได้ good ไม่ใช่ acceptable
+      acceptable: 0.45, // ลดจาก 0.60
+      poor: 0.30,       // ลดจาก 0.40
+      critical: 0.15    // ลดจาก 0.20
     }
     
     this.weights = {
-      inkDensity: 0.25,
-      edgeQuality: 0.20,
+      inkDensity: 0.30,  // เพิ่มจาก 0.25 — มีหมึกถือว่าดี
+      edgeQuality: 0.10, // ลดจาก 0.20 — handwriting ขอบไม่คมเป็นเรื่องปกติ
       centering: 0.15,
-      proportion: 0.15,
+      proportion: 0.20,  // เพิ่มจาก 0.15 — สัดส่วนตัวอักษรสำคัญกว่า edge
       clarity: 0.15,
       thaiMark: 0.10
     }
@@ -372,26 +372,27 @@ export class ConfidenceScoring {
     const { density, coverage, balance } = analysis
     let score = 0
     
-    // Thai handwriting strokes are thin — ideal density is 0.02–0.25
-    if (density >= 0.02 && density <= 0.25) {
+    // Thai handwriting strokes — widen acceptable range (0.01–0.35)
+    // บางตัวอักษรเช่น ง หรือ ว มีเส้นบางมาก density ต่ำเป็นเรื่องปกติ
+    if (density >= 0.01 && density <= 0.35) {
       score += 0.4
-    } else if (density >= 0.01 && density <= 0.5) {
+    } else if (density >= 0.005 && density <= 0.55) {
       score += 0.25
     } else if (density > 0) {
-      score += 0.1  // มีหมึกบ้าง ดีกว่าว่างเปล่า
+      score += 0.1
     }
     
-    // Coverage should be reasonable
-    if (coverage >= 0.05 && coverage <= 0.7) {
+    // Coverage: ขยายช่วงที่ยอมรับได้
+    if (coverage >= 0.03 && coverage <= 0.85) {
       score += 0.3
     } else if (coverage > 0) {
       score += 0.15
     }
     
-    // Balance should be good (dark ink)
-    if (balance > 0.5) {
+    // Balance: หมึกที่ดีควรเข้ม (low luminance = high balance)
+    if (balance > 0.4) {
       score += 0.3
-    } else if (balance > 0.2) {
+    } else if (balance > 0.15) {
       score += 0.15
     }
     
@@ -402,20 +403,23 @@ export class ConfidenceScoring {
     const { sharpness, completeness, noise } = analysis
     let score = 0
     
-    // Sharp edges are good
-    score += Math.min(1, sharpness * 2) * 0.4
+    // Handwriting edges are naturally soft — reward any edge presence, not just sharp ones
+    // sharpness * 1 instead of * 2 to be more lenient
+    score += Math.min(1, sharpness * 1.2) * 0.3
     
-    // Good edge completeness
-    score += completeness * 0.4
+    // Edge completeness: reward partial completeness (handwriting rarely fills all edges)
+    score += Math.min(1, completeness * 1.5) * 0.5
     
-    // Low noise is good
-    score += (1 - noise) * 0.2
+    // Low noise is good — but don't over-penalize
+    score += (1 - Math.min(1, noise * 2)) * 0.2
     
     return Math.min(1, score)
   }
 
   scoreCentering(analysis) {
-    return Math.max(0, Math.min(1, analysis.centering * 2))
+    // ลบ *2 ที่ทำให้ centering score เกินจริง และ clamp ที่ 1 อยู่ดี
+    // handwriting ที่เขียนชิดซ้ายหรือขวาเล็กน้อยถือว่ายังโอเค
+    return Math.max(0, Math.min(1, analysis.centering * 1.3))
   }
 
   scoreProportion(analysis) {
@@ -424,7 +428,9 @@ export class ConfidenceScoring {
 
   scoreClarity(analysis) {
     const { contrast, noise, artifacts } = analysis
-    return (contrast * 0.4 + (1 - noise) * 0.3 + (1 - artifacts) * 0.3)
+    // artifacts ใน handwriting มักเกิดจากหมึกที่มีความเข้มไม่สม่ำเสมอ (lum 130-179)
+    // ซึ่งเป็นเรื่องปกติ ไม่ควรนับว่าเป็นปัญหา — ลด weight ของ artifacts ลง
+    return (contrast * 0.5 + (1 - Math.min(1, noise * 1.5)) * 0.4 + (1 - Math.min(1, artifacts * 0.5)) * 0.1)
   }
 
   scoreThaiMark(analysis) {
