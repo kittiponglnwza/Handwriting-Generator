@@ -92,6 +92,22 @@ export function svgPathToOTCommands(svgPath) {
   const validation = validateSvgPath(svgPath)
   if (!validation.valid) return []
 
+  // ── Baseline shift ────────────────────────────────────────────────────────
+  // SVG path uses 0-100 space (Y-down).  After Y-flip: (100 - svgY) * SCALE.
+  // Without a shift the glyph bottom lands at ~5*SCALE = 45 font-units, but
+  // it should sit at DESCENDER (-200).  The top then overshoots ASCENDER (800)
+  // causing all glyphs to stack/overlap and appear as solid black blobs.
+  //
+  // Fix: shift every Y so that the glyph bottom (svgY ≈ 95, PAD=5 from top)
+  // aligns to DESCENDER.
+  //   glyph_bottom_font = (100 - 95) * SCALE = 5 * 9 = 45
+  //   BASELINE_SHIFT    = DESCENDER - 45 = -200 - 45 = -245
+  //   Result: bottom = 45 - 245 = -200 ✓   top ≈ 855 - 245 = 610 ✓ (< ASCENDER 800)
+  const GLYPH_BOTTOM_SVG = 95           // SVG y of glyph bottom (100 - PAD)
+  const BASELINE_SHIFT   = DESCENDER - ((100 - GLYPH_BOTTOM_SVG) * SCALE)  // ≈ -245
+
+  const toFontY = (svgY) => (100 - svgY) * SCALE + BASELINE_SHIFT
+
   const cmds   = []
   // Split on every command letter, keeping the letter
   const tokens = svgPath.trim().split(/(?=[MLCQZz])/)
@@ -113,12 +129,12 @@ export function svgPathToOTCommands(svgPath) {
     switch (cmd) {
       case 'M':
         if (nums.length >= 2) {
-          cmds.push({ type: 'M', x: nums[0] * SCALE, y: (100 - nums[1]) * SCALE })
+          cmds.push({ type: 'M', x: nums[0] * SCALE, y: toFontY(nums[1]) })
         }
         break
       case 'L':
         if (nums.length >= 2) {
-          cmds.push({ type: 'L', x: nums[0] * SCALE, y: (100 - nums[1]) * SCALE })
+          cmds.push({ type: 'L', x: nums[0] * SCALE, y: toFontY(nums[1]) })
         }
         break
       case 'C':
@@ -126,9 +142,9 @@ export function svgPathToOTCommands(svgPath) {
         for (let i = 0; i + 5 < nums.length; i += 6) {
           cmds.push({
             type: 'C',
-            x1: nums[i]   * SCALE, y1: (100 - nums[i+1]) * SCALE,
-            x2: nums[i+2] * SCALE, y2: (100 - nums[i+3]) * SCALE,
-            x:  nums[i+4] * SCALE, y:  (100 - nums[i+5]) * SCALE,
+            x1: nums[i]   * SCALE, y1: toFontY(nums[i+1]),
+            x2: nums[i+2] * SCALE, y2: toFontY(nums[i+3]),
+            x:  nums[i+4] * SCALE, y:  toFontY(nums[i+5]),
           })
         }
         break
@@ -137,8 +153,8 @@ export function svgPathToOTCommands(svgPath) {
         for (let i = 0; i + 3 < nums.length; i += 4) {
           cmds.push({
             type: 'Q',
-            x1: nums[i]   * SCALE, y1: (100 - nums[i+1]) * SCALE,
-            x:  nums[i+2] * SCALE, y:  (100 - nums[i+3]) * SCALE,
+            x1: nums[i]   * SCALE, y1: toFontY(nums[i+1]),
+            x:  nums[i+2] * SCALE, y:  toFontY(nums[i+3]),
           })
         }
         break

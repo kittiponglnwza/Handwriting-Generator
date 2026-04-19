@@ -24,6 +24,9 @@ const CLASS_WIDTHS = {
   thai_above:  0,
   thai_below:  0,
   thai_right: 380,
+  // Thai leading vowels (เ แ โ ใ ไ) — appear BEFORE consonant, advanceWidth=0
+  // The consonant after them carries the full advance.
+  thai_leading: 0,
   // Thai tone marks — non-spacing
   thai_tone:   0,
   // Latin uppercase
@@ -72,13 +75,24 @@ const THAI_TONES = new Set([
   0x0E48, 0x0E49, 0x0E4A, 0x0E4B, // mai ek, tho, tri, jattawa
 ])
 
-/** Thai right-side vowels */
+/** Thai right-side vowels (trailing — appear to the RIGHT of the consonant) */
 const THAI_RIGHT_VOWELS = new Set([
-  0x0E30, // sara a
-  0x0E32, // sara aa
-  0x0E33, // sara am
-  0x0E40, 0x0E41, 0x0E42, 0x0E43, 0x0E44, // sara e, ae, o, ai maimuan, ai maimalai
-  0x0E45, // lakkhangyao
+  0x0E30, // sara a   (◌ะ)
+  0x0E32, // sara aa  (◌า)
+  0x0E33, // sara am  (◌ำ)
+  0x0E45, // lakkhangyao (ๅ)
+  // NOTE: 0x0E40–0x0E44 (เ แ โ ใ ไ) are LEADING vowels — they appear to the LEFT
+  // of the consonant. Do NOT include them here or they get advanceWidth=380
+  // and render on the wrong side causing overlapping black blocks.
+])
+
+/** Thai leading vowels (appear to the LEFT of the consonant) */
+const THAI_LEADING_VOWELS = new Set([
+  0x0E40, // sara e  (เ)
+  0x0E41, // sara ae (แ)
+  0x0E42, // sara o  (โ)
+  0x0E43, // sara ai maimuan (ใ)
+  0x0E44, // sara ai maimalai (ไ)
 ])
 
 /** Narrow latin characters */
@@ -106,6 +120,7 @@ export function getGlyphClass(cp) {
   if (THAI_ABOVE_VOWELS.has(cp) || THAI_TONES.has(cp)) return 'thai_above'
   if (THAI_BELOW_VOWELS.has(cp)) return 'thai_below'
   if (THAI_RIGHT_VOWELS.has(cp)) return 'thai_right'
+  if (THAI_LEADING_VOWELS.has(cp)) return 'thai_leading'
   if (THAI_CONSONANTS.has(cp) || (cp >= 0x0E2F && cp <= 0x0E3A)) return 'thai_consonant'
   if (cp >= 0x0E00 && cp <= 0x0E7F) return 'thai_consonant' // other Thai
   if (cp >= 0x0041 && cp <= 0x005A) {                         // A-Z
@@ -134,7 +149,8 @@ export function isThaiNonSpacing(cp) {
   return (
     THAI_ABOVE_VOWELS.has(cp) ||
     THAI_BELOW_VOWELS.has(cp) ||
-    THAI_TONES.has(cp)
+    THAI_TONES.has(cp) ||
+    THAI_LEADING_VOWELS.has(cp)
   )
 }
 

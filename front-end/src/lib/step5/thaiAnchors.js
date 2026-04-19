@@ -93,16 +93,17 @@ export function calculateAnchorPositions(cluster, fontSize = 32) {
       case ThaiAnchorType.TOP:
         // Upper vowels (ิ ี ึ ื ั) and tone marks (่ ้ ๊ ๋):
         // Shift upward so mark sits above the consonant body.
-        offsetY = -0.72 * fontSize
-        offsetX =  0.0
+        // offsetY must account for scale (0.78) so mark doesn't overlap next cluster.
         scale   =  0.78
+        offsetY = -0.55 * fontSize * scale
+        offsetX =  0.0
         break
 
       case ThaiAnchorType.BOTTOM:
         // Lower vowels (ุ ู ฺ): sit below consonant descender.
-        offsetY = +0.52 * fontSize
-        offsetX =  0.0
         scale   =  0.78
+        offsetY = +0.40 * fontSize * scale
+        offsetX =  0.0
         break
 
       case ThaiAnchorType.LEFT:

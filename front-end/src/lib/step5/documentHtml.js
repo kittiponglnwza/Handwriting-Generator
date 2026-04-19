@@ -158,7 +158,7 @@ export function buildDocumentHtmlFragment({
         }).join("")
 
         innerContent =
-          `<span style="position:relative;display:block;width:100%;height:100%;overflow:visible">` +
+          `<span style="position:relative;display:block;width:100%;height:100%;overflow:visible;isolation:isolate">` +
           `${layers}</span>`
       } else {
         // ── Single glyph (Latin char or single Thai char) ─────────────────

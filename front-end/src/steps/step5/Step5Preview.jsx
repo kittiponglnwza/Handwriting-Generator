@@ -1,4 +1,5 @@
 ﻿import { useMemo, useRef, useState } from "react"
+import { ThaiPreview } from "@/core/rendering/ThaiEngine";
 
 const ZOOM_MIN = 0.25
 const ZOOM_MAX = 2.8

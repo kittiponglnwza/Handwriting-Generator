@@ -1,156 +1,134 @@
 /**
  * WEB WORKER FOR SVG TRACING
- * 
- * Moves intensive pixel scanning off main thread to prevent UI freezing
+ *
+ * Converts ink pixel mask → filled outline SVG path suitable for TTF embedding.
+ *
+ * WHY THE OLD CODE CAUSED SOLID BLACK GLYPHS:
+ *   Old algorithm output bare "M x0 y0 L x1 y1" open polylines (centerlines).
+ *   TTF outlines are ALWAYS filled — an unclosed path fills unpredictably,
+ *   usually producing a solid black blob.
+ *
+ * FIX: build CLOSED outline trapezoids (Z-terminated) so the fill area is
+ * only the thin stroke outline, not the entire glyph bounding box.
  */
 
-// SVG tracing logic moved to worker
+function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v }
+
 function traceToSVGPath(imageData, width, height) {
   try {
     const { data } = imageData
-    const threshold = 180
+    const THRESHOLD = 180
     const mask = new Uint8Array(width * height)
-    
-    // Optimized scanning with early exit
+
+    // 1. Build ink mask
     let inkCount = 0
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
-        const idx = (y * width + x) * 4
-        const r = data[idx],
-          g = data[idx + 1],
-          b = data[idx + 2],
-          a = data[idx + 3]
-        if (a < 50) {
-          mask[y * width + x] = 0
-          continue
-        }
-        const lum = r * 0.2126 + g * 0.7152 + b * 0.0722
-        const isInk = lum < threshold ? 1 : 0
-        mask[y * width + x] = isInk
-        inkCount += isInk
-      }
-      // Early exit if too little ink
-      if (inkCount > 0 && y < height / 4 && inkCount < 10) {
-        return null
+        const i = (y * width + x) * 4
+        if (data[i + 3] < 50) continue
+        const lum = data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722
+        if (lum < THRESHOLD) { mask[y * width + x] = 1; inkCount++ }
       }
     }
-    
     if (inkCount < 10) return null
 
-    const scaleX = 100 / width
-    const scaleY = 100 / height
-
-    const pathCmds = []
+    // 2. Scale: pixel → 0-100 SVG space
+    const sx = 100 / width
+    const sy = 100 / height
     const STEP = Math.max(1, Math.floor(Math.min(width, height) / 80))
 
-    let prevRuns = []
+    // 3. Extract runs per sampled row
+    const rowRuns = []
     for (let y = 0; y < height; y += STEP) {
       const runs = []
-      let inRun = false
-      let runStart = 0
-
+      let inRun = false, runStart = 0
       for (let x = 0; x < width; x++) {
-        const isInk = mask[y * width + x] === 1
-        if (isInk && !inRun) {
-          inRun = true
-          runStart = x
-        } else if (!isInk && inRun) {
-          inRun = false
-          runs.push({ start: runStart, end: x - 1 })
-        }
+        const ink = mask[y * width + x] === 1
+        if (ink && !inRun)  { inRun = true;  runStart = x }
+        if (!ink && inRun)  { inRun = false; runs.push({ start: runStart, end: x - 1 }) }
       }
       if (inRun) runs.push({ start: runStart, end: width - 1 })
+      for (const r of runs) {
+        r.midX  = (r.start + r.end) / 2 * sx
+        r.midY  = y * sy
+        r.halfW = clamp((r.end - r.start) / 2 * sx, 0.8, 12)
+      }
+      rowRuns.push({ y, runs })
+    }
 
-      for (const run of runs) {
-        const midX = (((run.start + run.end) / 2) * scaleX).toFixed(1)
-        const midY = (y * scaleY).toFixed(1)
+    // 4. Build CLOSED outline sub-paths (trapezoids / rects)
+    const parts = []
+    const halfStep = STEP * sy * 0.5
 
+    function emitRect(r) {
+      const x0 = (r.midX - r.halfW).toFixed(2)
+      const x1 = (r.midX + r.halfW).toFixed(2)
+      const yt  = Math.max(0,   r.midY - halfStep).toFixed(2)
+      const yb  = Math.min(100, r.midY + halfStep).toFixed(2)
+      // Closed rectangle — Z ensures fill is bounded
+      parts.push(`M ${x0} ${yt} L ${x1} ${yt} L ${x1} ${yb} L ${x0} ${yb} Z`)
+    }
+
+    function emitTrap(top, bot) {
+      const tx0 = (top.midX - top.halfW).toFixed(2)
+      const tx1 = (top.midX + top.halfW).toFixed(2)
+      const bx0 = (bot.midX - bot.halfW).toFixed(2)
+      const bx1 = (bot.midX + bot.halfW).toFixed(2)
+      // Closed trapezoid connecting two adjacent runs — Z bounds the fill
+      parts.push(`M ${tx0} ${top.midY.toFixed(2)} L ${tx1} ${top.midY.toFixed(2)} L ${bx1} ${bot.midY.toFixed(2)} L ${bx0} ${bot.midY.toFixed(2)} Z`)
+    }
+
+    for (let ri = 0; ri < rowRuns.length; ri++) {
+      const prevRuns = ri > 0 ? rowRuns[ri - 1].runs : []
+      for (const run of rowRuns[ri].runs) {
         const matched = prevRuns.find(
           pr => pr.start <= run.end + STEP * 2 && pr.end >= run.start - STEP * 2
         )
-
-        if (matched) {
-          const prevMidX = (((matched.start + matched.end) / 2) * scaleX).toFixed(1)
-          const prevMidY = ((y - STEP) * scaleY).toFixed(1)
-          pathCmds.push(`M ${prevMidX} ${prevMidY} L ${midX} ${midY}`)
-        } else {
-          const x1 = (run.start * scaleX).toFixed(1)
-          const x2 = (run.end * scaleX).toFixed(1)
-          pathCmds.push(`M ${x1} ${midY} L ${x2} ${midY}`)
-        }
+        if (matched) emitTrap(matched, run)
+        else         emitRect(run)
       }
-
-      prevRuns = runs
     }
 
-    if (pathCmds.length === 0) return null
-
-    return {
-      path: pathCmds.join(" "),
-      viewBox: "0 0 100 100",
-    }
-  } catch (error) {
+    if (parts.length === 0) return null
+    return { path: parts.join(' '), viewBox: '0 0 100 100' }
+  } catch (_) {
     return null
   }
 }
 
-// Worker message handler
 self.onmessage = function(e) {
   const { type, payload } = e.data
-  
   switch (type) {
-    case 'TRACE_GLYPH':
+    case 'TRACE_GLYPH': {
       try {
         const { imageData, width, height, glyphId } = payload
         const result = traceToSVGPath(imageData, width, height)
-        
         self.postMessage({
           type: 'TRACE_COMPLETE',
-          payload: {
-            glyphId,
-            result: result || { path: null, viewBox: "0 0 100 100" }
-          }
+          payload: { glyphId, result: result || { path: null, viewBox: '0 0 100 100' } },
         })
       } catch (error) {
-        self.postMessage({
-          type: 'TRACE_ERROR',
-          payload: {
-            glyphId,
-            error: error.message
-          }
-        })
+        self.postMessage({ type: 'TRACE_ERROR', payload: { glyphId: payload?.glyphId, error: error.message } })
       }
       break
-      
-    case 'TRACE_BATCH':
+    }
+    case 'TRACE_BATCH': {
       try {
         const { glyphs } = payload
         const results = []
-        
         for (const glyph of glyphs) {
           const result = traceToSVGPath(glyph.imageData, glyph.width, glyph.height)
-          results.push({
-            glyphId: glyph.id,
-            result: result || { path: null, viewBox: "0 0 100 100" }
-          })
+          results.push({ glyphId: glyph.id, result: result || { path: null, viewBox: '0 0 100 100' } })
         }
-        
-        self.postMessage({
-          type: 'BATCH_COMPLETE',
-          payload: { results }
-        })
+        self.postMessage({ type: 'BATCH_COMPLETE', payload: { results } })
       } catch (error) {
-        self.postMessage({
-          type: 'BATCH_ERROR',
-          payload: { error: error.message }
-        })
+        self.postMessage({ type: 'BATCH_ERROR', payload: { error: error.message } })
       }
       break
-      
+    }
     default:
       console.warn('Unknown worker message type:', type)
   }
 }
 
-// Worker ready signal
 self.postMessage({ type: 'WORKER_READY' })
