@@ -81,7 +81,9 @@ export function buildCellRectsFromDots(dots, pageWidth, pageHeight, expectedCols
 
   function clusterCoords(vals, pageSize) {
     const sorted = [...vals].sort((a, b) => a - b)
-    const minGap = pageSize * 0.04
+    // CRITICAL FIX: 0.04 * pageWidth(~2480px) = 99px which swallows real column gaps (~17px).
+    // Use 0.015 → ~37px: big enough to merge jitter within a column, small enough to split columns.
+    const minGap = Math.max(8, pageSize * 0.015)
     const clusters = []
     let group = [sorted[0]]
     for (let i = 1; i < sorted.length; i++) {

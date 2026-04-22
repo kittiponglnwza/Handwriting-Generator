@@ -6,6 +6,14 @@
 
 import { useState, useRef, useCallback, useEffect, useMemo } from "react"
 
+// Inject @keyframes spin ตรงนี้เพื่อ guarantee ว่า spinner ทำงาน
+if (typeof document !== 'undefined' && !document.getElementById('step5-keyframes')) {
+  const s = document.createElement('style')
+  s.id = 'step5-keyframes'
+  s.textContent = '@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }'
+  document.head.appendChild(s)
+}
+
 // ─── Tokens ───────────────────────────────────────────────────────────────────
 const C = {
   bg:       "#F8F7F4",
@@ -59,14 +67,26 @@ const STYLE_TAG_ID = 'my-handwriting-font-face'
 
 export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfBuffer = null }) {
 
-  // ── Build lookup: char → glyph (ใช้สำหรับ missing chars เท่านั้น) ──────
+  // ── Build lookup: char → glyph[] (Map, keyed by codepoint, value = array of all variants)
+  // versionedGlyphs has 3 variants per char (ver 1/2/3 from deformPath).
+  // tokens.js expects Map<ch, glyph[]> so it can pick randomly across variants.
   const glyphMap = useMemo(() => {
-    const map = {}
-    extractedGlyphs.forEach(g => {
-      if (!map[g.ch]) map[g.ch] = g
-    })
+    const map = new Map()
+    const source = versionedGlyphs.length > 0 ? versionedGlyphs : extractedGlyphs
+    for (const g of source) {
+      if (!g.ch) continue
+      if (!map.has(g.ch)) map.set(g.ch, [])
+      map.get(g.ch).push(g)
+    }
     return map
-  }, [extractedGlyphs])
+  }, [versionedGlyphs, extractedGlyphs])
+
+  // ── Plain object view of glyphMap for legacy code (missingChars, Coverage, Glyph Library) ──
+  const glyphMapObj = useMemo(() => {
+    const obj = {}
+    for (const [ch, arr] of glyphMap) obj[ch] = arr[0]
+    return obj
+  }, [glyphMap])
 
   // ── Font injection: 'idle' | 'loading' | 'ready' | 'error' ──────────────
   const [fontStatus, setFontStatus] = useState('idle')
@@ -153,13 +173,61 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
   const exportPNG = useCallback(async () => {
     if (!paperRef.current) return
     setExp("png")
-    await new Promise(r => setTimeout(r, 80))
+    await new Promise(r => setTimeout(r, 120)) // ให้ font render ก่อน
+
     try {
-      // Use native browser API via offscreen canvas trick
-      const node  = paperRef.current
-      const rect  = node.getBoundingClientRect()
-      alert("ใช้ Ctrl+Shift+S หรือ Right-click > Save as image\n(html2canvas ต้อง install แยกใน project จริง)")
-    } catch {}
+      const node   = paperRef.current
+      const SCALE  = 2  // 2× = Retina resolution
+      const w      = node.offsetWidth
+      const h      = node.offsetHeight
+
+      // ── serialize DOM node เป็น SVG foreignObject ──────────────────────
+      const xml    = new XMLSerializer().serializeToString(node)
+      const svgStr = [
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${w * SCALE}" height="${h * SCALE}">`,
+        `<foreignObject x="0" y="0" width="${w}" height="${h}" transform="scale(${SCALE})">`,
+        xml,
+        `</foreignObject></svg>`,
+      ].join("")
+
+      const blob   = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" })
+      const url    = URL.createObjectURL(blob)
+
+      const img = await new Promise((resolve, reject) => {
+        const i  = new Image()
+        i.onload = () => resolve(i)
+        i.onerror = reject
+        i.src = url
+      })
+
+      URL.revokeObjectURL(url)
+
+      const canvas = document.createElement("canvas")
+      canvas.width  = w * SCALE
+      canvas.height = h * SCALE
+      const ctx    = canvas.getContext("2d")
+      ctx.drawImage(img, 0, 0)
+
+      // ── download ────────────────────────────────────────────────────────
+      canvas.toBlob(pngBlob => {
+        const a  = document.createElement("a")
+        a.href   = URL.createObjectURL(pngBlob)
+        a.download = `handwriting-${Date.now()}.png`
+        a.click()
+        setTimeout(() => URL.revokeObjectURL(a.href), 5000)
+      }, "image/png")
+
+    } catch (err) {
+      console.error("[exportPNG] failed:", err)
+      // Fallback — เปิดแท็บใหม่ให้ save เอง
+      const node = paperRef.current
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+        <style>body{margin:0;background:#E8E4DC;display:flex;justify-content:center;padding:40px}</style>
+        </head><body>${node.outerHTML}</body></html>`
+      const b    = new Blob([html], { type: "text/html" })
+      window.open(URL.createObjectURL(b), "_blank")
+    }
+
     setExp(null)
   }, [])
 
@@ -190,17 +258,23 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
     ...(signMode ? { fontStyle: 'italic' } : {}),
   }), [activeFontFamily, fontSize, zoom, lineHeight, letterSp, isDark, textAlign, signMode])
 
+  // Thai combining marks — สระ/วรรณยุกต์ที่ไม่มี glyph แยก (render ใน font cluster)
+  const isThaiCombining = (c) => /[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/.test(c)
+
   // ── Missing chars (ตัวที่ไม่มีใน font) ──────────────────────────────────
   const missingChars = useMemo(() => {
     if (fontStatus !== 'ready') return []
-    return [...new Set([...text.replace(/[\n ]/g, '')].filter(c => !glyphMap[c]))]
-  }, [text, glyphMap, fontStatus])
+    return [...new Set(
+      [...text.replace(/[\n ]/g, '')]
+        .filter(c => !isThaiCombining(c) && !glyphMapObj[c])
+    )]
+  }, [text, glyphMapObj, fontStatus])
 
   // ── Font status bar label ─────────────────────────────────────────────────
   const fontStatusLabel = {
     idle:    '⏳ รอ compile font จาก Step 4',
     loading: '⏳ กำลังโหลด font…',
-    ready:   `✓ MyHandwriting (${Object.keys(glyphMap).length} glyphs)`,
+    ready:   `✓ MyHandwriting (${glyphMap.size} glyphs)`,
     error:   '⚠ โหลด font ไม่สำเร็จ — ใช้ system font แทน',
   }[fontStatus]
 
@@ -462,12 +536,14 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
                   overflow: "hidden",
                 }}>
                   <MiniStat label="Glyphs"   value={extractedGlyphs.length}             color={C.blue}   />
-                  <MiniStat label="Unique"   value={Object.keys(glyphMap).length}        color={C.green}  />
+                  <MiniStat label="Unique"   value={glyphMap.size}        color={C.green}  />
                   <MiniStat label="Coverage" value={
                     (() => {
-                      const chars = [...new Set([...text.replace(/[\n ]/g,"")])]
+                      const chars = [...new Set(
+                        [...text.replace(/[\n ]/g,"")].filter(c => !isThaiCombining(c))
+                      )]
                       if (!chars.length) return "—"
-                      const have = chars.filter(c => glyphMap[c]).length
+                      const have = chars.filter(c => glyphMapObj[c]).length
                       return Math.round(have / chars.length * 100) + "%"
                     })()
                   } color={C.purple} />
@@ -606,7 +682,7 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
                 </div>
 
                 <Sep />
-                <SLbl>Glyph Library ({Object.keys(glyphMap).length} ตัว)</SLbl>
+                <SLbl>Glyph Library ({glyphMap.size} ตัว)</SLbl>
                 <div style={{
                   display: "flex",
                   flexWrap: "wrap",
@@ -617,7 +693,7 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
                   background: "#F0EDE6",
                   borderRadius: 8,
                 }}>
-                  {Object.entries(glyphMap).map(([ch, g]) => (
+                  {Object.entries(glyphMapObj).map(([ch, g]) => (
                     <div key={ch} title={ch} style={{
                       width: 26, height: 26,
                       border: `1px solid ${C.border}`,
@@ -634,7 +710,7 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
                       }
                     </div>
                   ))}
-                  {Object.keys(glyphMap).length === 0 && (
+                  {glyphMap.size === 0 && (
                     <p style={{ fontSize: 11, color: C.inkLt, padding: "2px 0" }}>ยังไม่มี Glyphs</p>
                   )}
                 </div>

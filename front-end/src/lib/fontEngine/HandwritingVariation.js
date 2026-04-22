@@ -159,7 +159,7 @@ export class HandwritingVariation {
    * @param {number} clusterIndex - Cluster index
    * @returns {Object} Variation object
    */
-  generateVariation(char, index = 0, clusterIndex = 0) {
+  generateVariation(char, index = 0, clusterIndex = 0, isBaseLetter = false) {
     if (!this.options.enabled) {
       return {
         rotation: 0,
@@ -173,10 +173,11 @@ export class HandwritingVariation {
     // Create character-specific RNG for consistent variation
     const charRNG = this.rng.derive(`${char}-${index}-${clusterIndex}`)
     
-    // CRITICAL FIX: Generate variations based on preset
     const rotation = charRNG.range(-this.preset.rotationRange, this.preset.rotationRange)
     const offsetX = charRNG.range(-this.preset.positionRange, this.preset.positionRange)
-    const offsetY = charRNG.range(-this.preset.positionRange, this.preset.positionRange)
+    // CRITICAL FIX: Base consonants must NOT get Y jitter — it causes baseline wobble.
+    // Only marks and other combining characters get offsetY variation.
+    const offsetY = isBaseLetter ? 0 : charRNG.range(-this.preset.positionRange, this.preset.positionRange)
     const scale = 1 + charRNG.range(-this.preset.scaleRange, this.preset.scaleRange)
     const strokeWidth = 1 + charRNG.range(-this.preset.strokeWidthRange, this.preset.strokeWidthRange)
 
@@ -197,10 +198,13 @@ export class HandwritingVariation {
    * @returns {PositionedGlyph} Glyph with applied variation
    */
   applyVariation(positionedGlyph, index = 0, clusterIndex = 0) {
+    // Base letter = no anchorType (it's not a combining mark)
+    const isBaseLetter = positionedGlyph.anchorType === null || positionedGlyph.anchorType === undefined
     const variation = this.generateVariation(
       positionedGlyph.glyph.char,
       index,
-      clusterIndex
+      clusterIndex,
+      isBaseLetter
     )
     
     // Create new positioned glyph with variation

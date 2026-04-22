@@ -222,16 +222,10 @@ export class LayoutEngine {
       
       // CRITICAL FIX: Update position based on cluster's base character ONLY
       if (clusterGlyphs.length > 0) {
-        const baseGlyph = clusterGlyphs.find(g => !g.anchorType) // Base character (no anchor type)
-        if (baseGlyph) {
-          // Use ONLY the base character's advanceWidth for spacing
-          currentX += baseGlyph.transformed.advanceWidth + this.options.letterSpacing
-          previousBaseChar = cluster.baseChar
-        } else {
-          // Fallback: use first glyph's advanceWidth
-          currentX += clusterGlyphs[0].transformed.advanceWidth + this.options.letterSpacing
-          previousBaseChar = cluster.text[0]
-        }
+        // Advance by full cluster width: leading vowel(s) + base consonant + letter spacing.
+        const clusterAdvance = this.calculateClusterWidth(cluster, fontSize, previousBaseChar)
+        currentX += clusterAdvance
+        previousBaseChar = cluster.baseChar || cluster.text[0]
       }
     }
     
@@ -263,9 +257,15 @@ export class LayoutEngine {
       kerningAdjustment = this.kerningSystem.getKerningAdjustment(previousBaseChar, baseChar)
     }
     
-    // CRITICAL FIX: Cluster width = base character's advance width + kerning + letter spacing
-    // Marks (upper/lower) should NOT contribute to width
-    const baseWidth = baseGlyph.advanceWidth + kerningAdjustment
+    // Cluster width = leading vowel(s) + base consonant advance width + kerning + letter spacing
+    // Marks (upper/lower) are zero-width and should NOT contribute.
+    const leadingVowelUnits = cluster.leadingVowels
+      ? cluster.leadingVowels.reduce((sum, lv) => {
+          const lvG = globalGlyphCache.getWithFallback(lv)
+          return sum + (lvG ? lvG.advanceWidth : 0)
+        }, 0)
+      : 0
+    const baseWidth = leadingVowelUnits + baseGlyph.advanceWidth + kerningAdjustment
     return this.coordinateSystem.unitsToPixels(baseWidth, fontSize) + this.options.letterSpacing
   }
 
@@ -305,31 +305,59 @@ export class LayoutEngine {
       baseGlyphTransformed = this.coordinateSystem.transformGlyph(baseGlyph, fontSize, adjustedX, y)
     }
     
+    // Pre-pass: compute how much to shift base char right to make room for leading vowels
+    let leadingVowelWidth = 0
+    if (cluster.leadingVowels && cluster.leadingVowels.length > 0) {
+      for (const lv of cluster.leadingVowels) {
+        const lvGlyph = globalGlyphCache.getWithFallback(lv)
+        if (lvGlyph) {
+          leadingVowelWidth += this.coordinateSystem.unitsToPixels(lvGlyph.advanceWidth, fontSize)
+        }
+      }
+    }
+
+    // Stacking counter: track how many marks of each type have been placed
+    const markStackCount = {}
+
     // Layout each character in the cluster
     renderingOrder.forEach((char, index) => {
       const glyph = globalGlyphCache.getWithFallback(char)
       const isMark = cluster.getCombiningMarks().some(mark => mark.char === char)
+      const isLeadingVowel = cluster.leadingVowels && cluster.leadingVowels.includes(char)
       
       let glyphX = adjustedX
       let glyphY = y // Always start at baseline
       let anchorType = null
       
       if (isMark) {
-        // Simple offset positioning — same approach as normal fonts.
-        // All marks share the same X as the base character (they are zero-width).
-        // Y offset is a fixed fraction of fontSize relative to the cluster baseline.
-        // This bypasses the broken multi-layer anchor/transform pipeline entirely.
-        const markType = cluster.getCombiningMarks().find(mark => mark.char === char)?.type
+        const markInfo = cluster.getCombiningMarks().find(mark => mark.char === char)
+        const markType = markInfo?.type
         anchorType = markType
-        glyphX = adjustedX
-        glyphY = y + this.getMarkOffset(markType, fontSize)
+        const stackLevel = markStackCount[markType] || 0
+        markStackCount[markType] = stackLevel + 1
+        // Marks sit above/below the base consonant, which is shifted right by leadingVowelWidth
+        glyphX = adjustedX + leadingVowelWidth
+        glyphY = y + this.getMarkOffset(markType, fontSize, stackLevel)
+      } else if (isLeadingVowel) {
+        // Leading vowels render at the LEFT of the cluster (before base consonant)
+        const lvIndex = cluster.leadingVowels.indexOf(char)
+        let lvOffsetX = 0
+        for (let j = 0; j < lvIndex; j++) {
+          const prevLv = globalGlyphCache.getWithFallback(cluster.leadingVowels[j])
+          if (prevLv) lvOffsetX += this.coordinateSystem.unitsToPixels(prevLv.advanceWidth, fontSize)
+        }
+        glyphX = adjustedX + lvOffsetX
+        glyphY = y
       } else if (char === baseChar) {
-        // Base character uses adjusted position
-        glyphX = adjustedX
+        // Base character is shifted right to make room for leading vowels
+        glyphX = adjustedX + leadingVowelWidth
         glyphY = y // Base character always on baseline
       } else {
-        // Leading vowels and other non-mark characters — same baseline as base char
-        glyphX = adjustedX
+        // Following vowels (า ำ ๅ ๆ) must render AFTER base consonant
+        // Compute base consonant advance width and place following vowel to its right
+        const baseG = baseChar ? globalGlyphCache.getWithFallback(baseChar) : null
+        const baseAdvPx = baseG ? this.coordinateSystem.unitsToPixels(baseG.advanceWidth, fontSize) : 0
+        glyphX = adjustedX + leadingVowelWidth + baseAdvPx
         glyphY = y
       }
       
@@ -357,18 +385,20 @@ export class LayoutEngine {
    * @param {number} fontSize - Font size in pixels
    * @returns {number} Offset in pixels
    */
-  getMarkOffset(markType, fontSize) {
+  getMarkOffset(markType, fontSize, stackLevel = 0) {
+    // transformGlyph() already applies glyph.baselineOffset from the font data,
+    // which encodes each mark's correct vertical position.
+    // We only need to nudge if multiple marks stack in the same cluster.
+    const stackBump = stackLevel * fontSize * 0.15
     switch (markType) {
       case 'top':
-        // Upper mark paths are now drawn at negative y (y ≈ -300 to -150 font units),
-        // which places them visually above the base character. No extra offset needed.
-        return 0
+        // If stacking (e.g. sara i + tone mark), push second mark up a bit
+        return -stackBump
       case 'bottom':
-        // Lower mark paths are now drawn at y ≈ 950-1000 font units,
-        // which places them visually below the base character. No extra offset needed.
-        return 0
+        // If stacking lower marks, push second mark down
+        return stackBump
       default:
-        return 0
+        return -stackBump
     }
   }
 
