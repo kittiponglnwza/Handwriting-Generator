@@ -319,7 +319,7 @@ function buildNotdefGlyph() {
  * @param {object[]} glyphs - raw glyph objects from Step 3
  * @returns {Map<string, { codepoint, unicode, default, alt1, alt2, rawId, viewBox }>}
  */
-export function buildGlyphMap(glyphs) {
+export function buildGlyphMap(glyphs, seed = Math.random()) {
   const byChar = {}
 
   const GOOD_STATUSES = new Set(['ok', 'excellent', 'good', 'acceptable'])
@@ -332,6 +332,17 @@ export function buildGlyphMap(glyphs) {
     if (!isOk) continue
     if (!byChar[g.ch]) byChar[g.ch] = []
     byChar[g.ch].push(g)
+  }
+
+  // ── Seeded PRNG (mulberry32) ─────────────────────────────────────────────
+  // seed ใหม่ทุก Build click → shuffle pattern ต่างกัน → default glyph ต่างกัน
+  let _s = (seed * 2654435761) >>> 0
+  function _rand() {
+    _s += 0x6D2B79F5
+    let t = _s
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
   }
 
   const map = new Map()
@@ -348,14 +359,27 @@ export function buildGlyphMap(glyphs) {
     const cp = ch.codePointAt(0)
     if (!cp) continue
 
+    // Fisher-Yates shuffle ด้วย seeded PRNG — ทุก Build click ได้ default ต่างกัน
+    const shuffled = [...valid]
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(_rand() * (i + 1))
+      ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+    }
+    // deformPath version สุ่มด้วย เพื่อให้ alt1/alt2 ไม่ซ้ำ pattern เดิม
+    const dv = [1, 2, 3]
+    for (let i = dv.length - 1; i > 0; i--) {
+      const j = Math.floor(_rand() * (i + 1))
+      ;[dv[i], dv[j]] = [dv[j], dv[i]]
+    }
+
     map.set(ch, {
       codepoint: cp,
       unicode:   `U+${cp.toString(16).toUpperCase().padStart(4, '0')}`,
-      default:   deformPath(valid[0].svgPath, 1),
-      alt1:      deformPath(valid[Math.min(1, valid.length - 1)].svgPath, 2),
-      alt2:      deformPath(valid[Math.min(2, valid.length - 1)].svgPath, 3),
-      rawId:     valid[0].id,
-      viewBox:   valid[0].viewBox || '0 0 100 100',
+      default:   deformPath(shuffled[0].svgPath, dv[0]),
+      alt1:      deformPath(shuffled[Math.min(1, shuffled.length - 1)].svgPath, dv[1]),
+      alt2:      deformPath(shuffled[Math.min(2, shuffled.length - 1)].svgPath, dv[2]),
+      rawId:     shuffled[0].id,
+      viewBox:   shuffled[0].viewBox || '0 0 100 100',
     })
   }
 
@@ -381,7 +405,7 @@ export function buildGlyphMap(glyphs) {
  *   featureStatus: object,
  * }>}
  */
-export async function compileFontBuffer(glyphMap, fontName = FONT_NAME, onProgress) {
+export async function compileFontBuffer(glyphMap, fontName = FONT_NAME, onProgress, seed = Math.random()) {
   const emit = (msg, pct, level = 'info') => {
     const entry = log(level, msg)
     onProgress?.(msg, pct, entry)
@@ -393,6 +417,18 @@ export async function compileFontBuffer(glyphMap, fontName = FONT_NAME, onProgre
 
   addLog(emit('เริ่ม compile font…', 2))
   addLog(emit(`จำนวน characters: ${glyphMap.size}`, 4))
+
+  // ── Per-render PRNG: สุ่ม variant ที่จะ bake เป็น Unicode glyph ────────────
+  // เนื่องจาก opentype.js 1.3.x serialize GSUB LookupType 6 ไม่ได้ (calt ไม่ทำงาน)
+  // วิธีที่ได้ผลจริงคือ bake path ที่สุ่มแล้วเป็น default glyph โดยตรง
+  // ทุก Build click ได้ seed ใหม่ → path ที่ bake ต่างกัน → font ดูต่างกัน
+  let _rs = (seed * 1664525 + 1013904223) >>> 0
+  function _rrand() {
+    _rs ^= _rs << 13; _rs ^= _rs >>> 17; _rs ^= _rs << 5
+    return (_rs >>> 0) / 4294967296
+  }
+  // ฟังก์ชันสุ่มเลือก variant: 0=default, 1=alt1, 2=alt2
+  function pickVariant() { return Math.floor(_rrand() * 3) }
 
   // opentype.js is already imported — no CDN needed
   addLog(emit('opentype.js loaded (local package ✓)', 6))
@@ -459,24 +495,32 @@ export async function compileFontBuffer(glyphMap, fontName = FONT_NAME, onProgre
         ? svgPathToOTCommands(alt2Path, cp)
         : defCmds
 
-      // ── Default glyph (carries the Unicode codepoint) ─────────────────
+      // ── สุ่มเลือก variant ที่จะ bake เป็น Unicode glyph โดยตรง ─────────
+      // opentype.js 1.3.x serialize GSUB LookupType 6 (calt) ไม่ได้ → ใช้วิธีนี้แทน
+      // แต่ละตัวอักษรได้ path ที่ต่างกันใน build นี้
+      const allCmds   = [defCmds, alt1Cmds, alt2Cmds]
+      const allPaths  = [defPath, alt1Path, alt2Path]
+      const chosenIdx = pickVariant()
+      const chosenCmds  = allCmds[chosenIdx]
+      const chosenPath  = allPaths[chosenIdx]
+      const chosenMetrics = chosenIdx === 0 ? metrics : computeGlyphMetrics(chosenPath, cp)
+
+      // ── Default glyph (carries the Unicode codepoint) — path สุ่มแล้ว ──
       const defGlyph = new opentype.Glyph({
         name,
-        // For supplementary plane: opentype.js accepts full codepoint array
         unicode: cp,
         unicodes: [cp],
-        advanceWidth: metrics.advanceWidth,
-        path: buildOTPath(defCmds),
+        advanceWidth: chosenMetrics.advanceWidth,
+        path: buildOTPath(chosenCmds),
       })
 
-      // ── Alt1 — no Unicode (accessed via GSUB salt/calt) ───────────────
+      // ── Alt1 / Alt2 — เก็บไว้สำหรับ GSUB salt (ถ้า browser รองรับ) ───
       const alt1Glyph = new opentype.Glyph({
         name: `${name}.alt1`,
         advanceWidth: computeGlyphMetrics(alt1Path, cp).advanceWidth,
         path: buildOTPath(alt1Cmds),
       })
 
-      // ── Alt2 ──────────────────────────────────────────────────────────
       const alt2Glyph = new opentype.Glyph({
         name: `${name}.alt2`,
         advanceWidth: computeGlyphMetrics(alt2Path, cp).advanceWidth,

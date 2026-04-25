@@ -418,7 +418,9 @@ export default function Step4({ glyphs = [], fontStyle, onFontStyleChange, onFon
 
   const hasGlyphs = glyphs.length > 0
 
-  const glyphMap   = useMemo(() => hasGlyphs ? buildGlyphMap(glyphs) : new Map(), [glyphs, hasGlyphs])
+  // buildSeed เปลี่ยนทุก Build click → buildGlyphMap + compileFontBuffer สุ่มใหม่
+  const [buildSeed, setBuildSeed] = useState(() => Math.random())
+  const glyphMap   = useMemo(() => hasGlyphs ? buildGlyphMap(glyphs, buildSeed) : new Map(), [glyphs, hasGlyphs, buildSeed])
   const entries    = useMemo(() => Array.from(glyphMap.entries()), [glyphMap])
   const charCount  = glyphMap.size
   const totalVariants = charCount * 3
@@ -473,6 +475,8 @@ export default function Step4({ glyphs = [], fontStyle, onFontStyleChange, onFon
   // ── Build ──────────────────────────────────────────────────────────────────
   const handleBuild = useCallback(async () => {
     if (!hasGlyphs || buildStateRef.current === 'building') return
+    const newSeed = Math.random()
+    setBuildSeed(newSeed)           // seed ใหม่ → glyphMap + compile สุ่มใหม่ทั้งหมด
     setBuildState('building')
     setErrorMsg('')
     setBuildResult(null)
@@ -486,7 +490,7 @@ export default function Step4({ glyphs = [], fontStyle, onFontStyleChange, onFon
     try {
       await new Promise(r => setTimeout(r, 60))
 
-      const result = await compileFontBuffer(glyphMap, fontName, onProgress)
+      const result = await compileFontBuffer(glyphMap, fontName, onProgress, newSeed)
       const {
         ttfBuffer, woffBuffer, glyphCount,
         skipped, buildLog: newLog, glyphInfo, featureStatus: fStatus,
