@@ -453,7 +453,7 @@ export default function Step4({ glyphs = [], fontStyle, onFontStyleChange, onFon
   // กรณี user navigate Step4 → Step5 → Step4 → Step5 โดยไม่ build ใหม่
   useEffect(() => {
     if (buildState === 'done' && buildResult?.ttfBuffer) {
-      onFontReady?.(buildResult.ttfBuffer)
+      onFontReady?.({ ttfBuffer: buildResult.ttfBuffer, puaMap: buildResult.puaMap ?? new Map() })
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -494,6 +494,7 @@ export default function Step4({ glyphs = [], fontStyle, onFontStyleChange, onFon
       const {
         ttfBuffer, woffBuffer, glyphCount,
         skipped, buildLog: newLog, glyphInfo, featureStatus: fStatus,
+        puaMap,  // ← PUA randomization map (ch → {v0,v1,v2})
       } = result
 
       setBuildLog(newLog)
@@ -508,11 +509,12 @@ export default function Step4({ glyphs = [], fontStyle, onFontStyleChange, onFon
         ttfBuffer, woffBuffer, glyphCount,
         skipped, glyphInfo, exportGlyphMap, metadata,
         featureStatus: fStatus,
+        puaMap,
       })
       setBuildState('done')
 
-      // ── แจ้ง App ว่า font พร้อมแล้ว → Step 5 จะ inject @font-face ทันที ──
-      onFontReady?.(ttfBuffer)
+      // ── แจ้ง App ว่า font พร้อมแล้ว → ส่ง ttfBuffer + puaMap ไป Step5 ──
+      onFontReady?.({ ttfBuffer, puaMap })
     } catch (err) {
       console.error('[Step4] Font build failed:', err)
       setErrorMsg(err.message || 'Unknown compilation error')

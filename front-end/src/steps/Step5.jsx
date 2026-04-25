@@ -74,19 +74,18 @@ function xorshift(seed) {
 // ─── SVG-based text renderer ─────────────────────────────────────────────────
 // วาด glyph SVG path ตรงๆ ต่อ position โดยสุ่ม variant ด้วย position seed
 // ทำให้ทุกตัวอักษรในข้อความได้ path ต่างกัน แม้เป็น character เดียวกัน
-function renderHandwrittenSVG({ text, glyphMap, fontSize, lineHeight, letterSp, width, margin, isDark }) {
+function renderHandwrittenSVG({ text, glyphMap, fontSize, lineHeight, letterSp, width, margin, isDark, seed = 1 }) {
   if (!glyphMap || glyphMap.size === 0) return null
 
   const lhPx   = fontSize * lineHeight
   const inkCol = isDark ? "rgba(220,210,195,.92)" : T.ink
 
-  // Collect lines
   const lines = text.split("\n")
   const svgLines = []
-  let posCounter = 0 // global position counter for seeding
+  let posCounter = 0
 
   lines.forEach((line, li) => {
-    const y = margin + li * lhPx + fontSize * 0.8 // baseline
+    const y = margin + li * lhPx + fontSize * 0.8
     let x = margin
 
     for (const ch of line) {
@@ -94,7 +93,6 @@ function renderHandwrittenSVG({ text, glyphMap, fontSize, lineHeight, letterSp, 
 
       const variants = glyphMap.get(ch)
       if (!variants || variants.length === 0) {
-        // Fallback: render as text
         svgLines.push(
           `<text x="${x}" y="${y}" font-size="${fontSize}" fill="${inkCol}" opacity=".7">${ch}</text>`
         )
@@ -103,16 +101,18 @@ function renderHandwrittenSVG({ text, glyphMap, fontSize, lineHeight, letterSp, 
         continue
       }
 
-      // สุ่ม variant ด้วย position seed — ทุก position ได้ variant ต่างกัน
-      const rng     = xorshift(posCounter * 7919 + li * 31337)
+      // สุ่ม variant ด้วย position seed + randomSeed — กด 🎲 ได้ pattern ใหม่
+      const rng     = xorshift(posCounter * 7919 + li * 31337 + seed * 999983)
       const picked  = variants[Math.floor(rng * variants.length)]
-      const svgPath = picked?.svgPath || picked?.default
+      // แก้ bug: ตรวจสอบ svgPath อย่างเข้มงวด ไม่ fallback ไป .default ที่ไม่มี
+      const rawPath = picked?.svgPath
+      const svgPath = (rawPath && typeof rawPath === 'string' && rawPath.trim() && rawPath.trim() !== 'M 0 0')
+        ? rawPath.trim()
+        : null
 
-      if (svgPath && svgPath.trim() && svgPath !== 'M 0 0') {
-        // SVG viewBox 0-100, scale to fontSize
+      if (svgPath) {
         const scale = fontSize / 100
-        // slight per-character rotation for handwriting feel
-        const rot  = (xorshift(posCounter * 13337) - 0.5) * 3.5
+        const rot  = (xorshift(posCounter * 13337 + seed * 31337) - 0.5) * 3.5
         svgLines.push(
           `<g transform="translate(${x}, ${y - fontSize * 0.82}) rotate(${rot.toFixed(2)}, ${fontSize/2}, ${fontSize/2}) scale(${scale})">
             <path d="${svgPath}" fill="${inkCol}" />
@@ -134,7 +134,7 @@ function renderHandwrittenSVG({ text, glyphMap, fontSize, lineHeight, letterSp, 
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfBuffer = null }) {
+export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfBuffer = null, puaMap = null }) {
 
   // Build per-character glyph map: ch → array of variants
   const glyphMap = useMemo(() => {
@@ -206,6 +206,7 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
   const [renderMode,setRMode]   = useState("font")  // font | svg
   const [exporting, setExp]     = useState(null)
   const [copied,    setCopied]  = useState(false)
+  const [randomSeed,setRandSeed]= useState(42)        // ← PUA randomization seed
 
   const paperRef = useRef(null)
   const paperCfg = PAPERS.find(p => p.id === paper) ?? PAPERS[0]
@@ -235,14 +236,34 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
     return `${Math.round(have / requiredChars.length * 100)}%`
   }, [requiredChars, glyphMapObj])
 
+  // ── PUA Randomization ────────────────────────────────────────────────────────
+  // แปลงข้อความให้สุ่ม codepoint (Unicode / PUA-v1 / PUA-v2) ต่อตำแหน่ง
+  // ผล: ตัวอักษรเดียวกันในข้อความได้ glyph variant ต่างกันทุก position จริงๆ
+  const hasPua = puaMap && puaMap.size > 0
+
+  const puaText = useMemo(() => {
+    if (!hasPua || renderMode !== 'font') return text
+    let pos = 0
+    return [...text].map(ch => {
+      if (/\s/.test(ch)) { pos++; return ch }
+      const info = puaMap.get(ch)
+      if (!info) { pos++; return ch }
+      const r    = xorshift(pos * 7919 + randomSeed * 999983)
+      const pick = Math.floor(r * 3)   // 0 = default, 1 = PUA v1, 2 = PUA v2
+      pos++
+      const cp = pick === 0 ? info.v0 : pick === 1 ? info.v1 : info.v2
+      return String.fromCodePoint(cp)
+    }).join('')
+  }, [text, puaMap, hasPua, randomSeed, renderMode])
+
   // SVG render data — recomputes when text or settings change → new random positions
   const svgData = useMemo(() => {
     if (renderMode !== 'svg' || glyphMap.size === 0) return null
     return renderHandwrittenSVG({
       text, glyphMap, fontSize, lineHeight, letterSp: letterSp * fontSize,
-      width: A4W, margin: MARGIN, isDark,
+      width: A4W, margin: MARGIN, isDark, seed: randomSeed,
     })
-  }, [text, glyphMap, fontSize, lineHeight, letterSp, renderMode, isDark])
+  }, [text, glyphMap, fontSize, lineHeight, letterSp, renderMode, isDark, randomSeed])
 
   const textStyle = useMemo(() => ({
     fontFamily:          activeFontFamily,
@@ -353,10 +374,19 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
           value={renderMode}
           onChange={setRMode}
           options={[
-            { id: "font", label: "Font" },
-            { id: "svg",  label: "SVG (สุ่ม)" },
+            { id: "font", label: hasPua ? "Font ✦PUA" : "Font" },
+            { id: "svg",  label: "SVG" },
           ]}
         />
+
+        <Vr dark />
+
+        {/* Shuffle button — PUA randomization */}
+        <TBtnDark
+          onClick={() => setRandSeed(s => s + 1)}
+          title={hasPua ? `สุ่ม variant ใหม่ (PUA seed: ${randomSeed})` : "Build font ก่อนเพื่อใช้ PUA สุ่ม"}
+          disabled={!hasPua}
+        >🎲</TBtnDark>
 
         <Vr dark />
 
@@ -440,8 +470,13 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
             : `fallback font (ขาด ${missingChars.length} glyphs)`)}
           {fontStatus === 'error'   && "โหลด font ไม่สำเร็จ"}
         </span>
-        {renderMode === 'svg' && glyphMap.size > 0 && (
+        {fontStatus === 'ready' && hasPua && renderMode === 'font' && (
           <span style={{ marginLeft: 8, fontSize: 9, color: T.gold, letterSpacing: "0.06em" }}>
+            ✦ PUA MODE — สุ่ม variant ต่อ position (กด 🎲 เพื่อสุ่มใหม่)
+          </span>
+        )}
+        {renderMode === 'svg' && glyphMap.size > 0 && (
+          <span style={{ marginLeft: 8, fontSize: 9, color: T.indigo, letterSpacing: "0.06em" }}>
             ✦ SVG MODE — สุ่ม variant ต่อ position
           </span>
         )}
@@ -484,8 +519,8 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
 
             {/* Content */}
             {renderMode === 'font' ? (
-              /* Font render mode */
-              <div style={textStyle}>{text}</div>
+              /* Font render mode — ใช้ puaText (PUA randomized) แทน text ดิบ */
+              <div style={textStyle}>{hasPua ? puaText : text}</div>
             ) : svgData ? (
               /* SVG render mode — per-position randomized */
               <svg
@@ -601,14 +636,99 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
                   <Toggle value={signMode} onChange={setSign} />
                 </div>
 
-                {/* Render mode info */}
+                {/* Render mode info + DEBUG */}
                 <Hr />
                 <PLabel>Render Mode</PLabel>
                 <div style={{ background: "#F0EBE0", borderRadius: 8, padding: "10px 12px", marginBottom: 12 }}>
                   <p style={{ fontSize: 10, color: T.inkMd, lineHeight: 1.6 }}>
-                    <b style={{ color: T.ink }}>Font</b> — ใช้ TTF + calt<br/>
-                    <b style={{ color: T.rust }}>SVG ✦</b> — วาด glyph path ตรงๆ สุ่ม variant ต่อตัวอักษร
+                    <b style={{ color: T.ink }}>Font ✦PUA</b> — TTF จริง สุ่ม variant ต่อ position<br/>
+                    <b style={{ color: T.rust }}>SVG</b> — วาด path ตรงๆ สุ่ม variant ต่อตัวอักษร
                   </p>
+                  {hasPua && renderMode === 'font' && (
+                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
+                      <p style={{ fontSize: 9, color: T.inkLt, marginBottom: 4 }}>PUA Seed: {randomSeed}</p>
+                      <button
+                        onClick={() => setRandSeed(s => s + 1)}
+                        style={{
+                          width: "100%", padding: "6px 0",
+                          background: T.rust, color: "#fff",
+                          border: "none", borderRadius: 6,
+                          fontSize: 10, fontWeight: 700,
+                          cursor: "pointer", fontFamily: "inherit",
+                          letterSpacing: "0.06em",
+                        }}
+                      >🎲 สุ่ม Variant ใหม่</button>
+                    </div>
+                  )}
+                  {!hasPua && (
+                    <p style={{ fontSize: 9, color: T.rust, marginTop: 6 }}>
+                      ⚠ Build font จาก Step 4 ก่อนเพื่อใช้ PUA mode
+                    </p>
+                  )}
+                </div>
+
+                {/* ── DEBUG PANEL ── แสดง codepoint จริงที่ถูก inject ต่อ position */}
+                <Hr />
+                <PLabel>🔬 PUA Debug</PLabel>
+                <div style={{ background: "#1C1714", borderRadius: 8, padding: "10px 12px", marginBottom: 8 }}>
+                  {/* สถานะ puaMap */}
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                    <span style={{ fontSize: 9, color: hasPua ? T.sage : T.rust, fontFamily: "monospace" }}>
+                      puaMap: {hasPua ? `✓ ${puaMap.size} chars` : "✗ null / empty"}
+                    </span>
+                    <span style={{ fontSize: 9, color: T.inkLt, fontFamily: "monospace" }}>
+                      seed: {randomSeed}
+                    </span>
+                  </div>
+
+                  {/* ตรวจว่า font มี PUA glyphs จริงไหม — ดูจาก codepoint ใน puaText */}
+                  {hasPua && renderMode === 'font' && (() => {
+                    // วิเคราะห์ puaText — แสดง 12 ตัวแรก
+                    const chars = [...text].filter(c => !/\s/.test(c)).slice(0, 12)
+                    const puaChars = [...puaText].filter(c => !/\s/.test(c)).slice(0, 12)
+                    return (
+                      <div>
+                        <p style={{ fontSize: 8, color: T.inkLt, marginBottom: 4, letterSpacing: "0.06em" }}>
+                          CHAR → CODEPOINT (v0=original, v1=PUA+E000, v2=PUA+E400)
+                        </p>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                          {chars.map((ch, i) => {
+                            const pch = puaChars[i] ?? ch
+                            const cp = pch.codePointAt(0)
+                            const info = puaMap.get(ch)
+                            const isV0 = cp === info?.v0
+                            const isV1 = cp === info?.v1
+                            const isV2 = cp === info?.v2
+                            const varLabel = isV0 ? "v0" : isV1 ? "v1" : isV2 ? "v2" : "??"
+                            const varColor = isV0 ? T.inkLt : isV1 ? T.gold : isV2 ? T.sage : T.rust
+                            return (
+                              <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <span style={{ fontSize: 11, color: "#fff", width: 14, textAlign: "center", fontFamily: `'${FONT_FAMILY}', serif` }}>{ch}</span>
+                                <span style={{ fontSize: 8, color: T.inkLt, fontFamily: "monospace" }}>→</span>
+                                <span style={{ fontSize: 8, color: varColor, fontFamily: "monospace", fontWeight: 700 }}>{varLabel}</span>
+                                <span style={{ fontSize: 8, color: T.inkLt, fontFamily: "monospace" }}>
+                                  U+{cp?.toString(16).toUpperCase().padStart(4, "0")}
+                                </span>
+                                {!info && (
+                                  <span style={{ fontSize: 8, color: T.rust }}>NO MAP</span>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                        <p style={{ fontSize: 8, color: T.inkLt, marginTop: 6 }}>
+                          v0 (original) = U+0xxx · v1 = U+E0xx · v2 = U+E4xx
+                        </p>
+                      </div>
+                    )
+                  })()}
+
+                  {/* กรณีไม่มี puaMap */}
+                  {!hasPua && (
+                    <p style={{ fontSize: 9, color: T.rust, fontFamily: "monospace" }}>
+                      puaMap ไม่ถูกส่งมา → ต้อง Build font ใหม่จาก Step 4
+                    </p>
+                  )}
                 </div>
 
                 {missingChars.length > 0 && (

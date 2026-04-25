@@ -48,6 +48,7 @@ const INITIAL_STATE = {
   glyphResult:     null,
   versionedGlyphs: [],
   ttfBuffer:       null,
+  puaMap:          null,
   fontStyle: {
     roughness:   30,
     neatness:    70,
@@ -94,8 +95,8 @@ export default function App() {
 
   const handleClearPdf = () => { setAppState(INITIAL_STATE) }
 
-  const handleFontReady = (ttfBuffer) => {
-    setAppState(prev => ({ ...prev, ttfBuffer }))
+  const handleFontReady = ({ ttfBuffer, puaMap }) => {
+    setAppState(prev => ({ ...prev, ttfBuffer, puaMap: puaMap ?? null }))
   }
 
   const handleGlyphsUpdate = (glyphs) => {
@@ -231,6 +232,7 @@ export default function App() {
                     versionedGlyphs={appState.versionedGlyphs}
                     extractedGlyphs={appState.glyphResult?.glyphs ?? []}
                     ttfBuffer={appState.ttfBuffer}
+                    puaMap={appState.puaMap}
                     fontStyle={appState.fontStyle}
                   />
                 </Suspense>
