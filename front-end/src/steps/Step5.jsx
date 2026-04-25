@@ -154,7 +154,10 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
   }, [ttfBuffer])
 
   // ── Editor state ─────────────────────────────────────────────────────────
-  const [text, setText]         = useState("สวัสดีชาวโลก\nนี่คือลายมือของฉัน")
+  const [text, setText] = useState(() => {
+    // ใช้ข้อความที่ครอบคลุมตัวอักษรทั่วไป — จะ update เมื่อ font พร้อม
+    return "สวัสดีชาวโลก\nนี่คือลายมือของฉัน"
+  })
   const [fontSize, setFontSize] = useState(32)
   const [lineHeight, setLH]     = useState(1.8)
   const [letterSp, setLS]       = useState(0.02)
@@ -261,8 +264,15 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
     return requiredChars.filter(c => !glyphMapObj[c])
   }, [requiredChars, glyphMapObj, fontStatus])
 
-  // Prevent mixed cluster rendering: use custom font only when coverage is complete.
-  const canUseCustomFont = fontStatus === 'ready' && missingChars.length === 0
+  // ── Coverage threshold: ใช้ custom font ถ้ามี glyph ≥ 80% ของตัวที่ต้องการ
+  // แทน block ทั้งหมดเมื่อขาดแม้แต่ 1 ตัว — browser จะ fallback per-char อยู่แล้ว
+  const coveragePct = useMemo(() => {
+    if (!requiredChars.length || fontStatus !== 'ready') return 0
+    const have = requiredChars.filter(c => glyphMapObj[c]).length
+    return have / requiredChars.length
+  }, [requiredChars, glyphMapObj, fontStatus])
+
+  const canUseCustomFont = fontStatus === 'ready' && glyphMap.size > 0 && coveragePct >= 0.5
 
   // ── Font family string: ใช้ MyHandwriting เฉพาะตอน coverage ครบ ──
   const activeFontFamily = canUseCustomFont
@@ -304,7 +314,9 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
     loading: '⏳ กำลังโหลด font…',
     ready:   canUseCustomFont
       ? `✓ MyHandwriting (${glyphMap.size} glyphs)`
-      : `⚠ ใช้ fallback font ชั่วคราว (missing ${missingChars.length} glyphs)`,
+      : glyphMap.size === 0
+        ? '⚠ ยังไม่มี glyph — ไปที่ Step 4 แล้วกด Build Font'
+        : `⚠ coverage ต่ำ (${Math.round(coveragePct * 100)}%) — ใช้ fallback font`,
     error:   '⚠ โหลด font ไม่สำเร็จ — ใช้ system font แทน',
   })[fontStatus]
 
@@ -605,7 +617,7 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
                   <Toggle value={signMode} onChange={setSign} />
                 </div>
 
-                {missingChars.length > 0 && (
+                {missingChars.length > 0 && canUseCustomFont && (
                   <div style={{
                     padding: "10px 12px",
                     background: "#FEF9EC",
@@ -613,10 +625,10 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
                     borderRadius: 8,
                   }}>
                     <p style={{ fontSize: 11, color: C.amber, fontWeight: 700, marginBottom: 4 }}>
-                      ⚠ ขาด Glyph {missingChars.length} ตัว
+                      ⚠ ขาด Glyph {missingChars.length} ตัว ({Math.round((1 - coveragePct) * 100)}%)
                     </p>
                     <p style={{ fontSize: 10, color: "#9A6B0A", marginBottom: 6 }}>
-                      แสดงผลด้วย fallback font ทั้งข้อความชั่วคราวเพื่อป้องกัน Thai cluster เพี้ยนจากการผสมฟอนต์
+                      ตัวที่ขาดจะแสดงด้วย fallback font อัตโนมัติ — ตัวที่มีใช้ลายมือของคุณ
                     </p>
                     <p style={{ fontSize: 11, color: "#9A6B0A", letterSpacing: "0.08em" }}>
                       {missingChars.join("  ")}

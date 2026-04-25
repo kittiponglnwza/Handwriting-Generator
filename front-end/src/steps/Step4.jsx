@@ -367,7 +367,45 @@ function InstallGuidePanel({ fontName }) {
 
 // ─── Main component ────────────────────────────────────────────────────────────
 
-export default function Step4({ glyphs = [], onFontReady }) {
+// ─── Font Quality Slider config (P1.1) ───────────────────────────────────────
+const FONT_SLIDERS = [
+  { key: "roughness",  label: "ความสั่น",   min: 0,   max: 100, unit: ""  },
+  { key: "neatness",   label: "ความเรียบ",  min: 0,   max: 100, unit: ""  },
+  { key: "slant",      label: "เอียง",      min: -30, max: 30,  unit: "°" },
+  { key: "boldness",   label: "น้ำหนัก",    min: 70,  max: 150, unit: "%" },
+  { key: "randomness", label: "ความสุ่ม",   min: 0,   max: 100, unit: ""  },
+]
+
+function FontStylePanel({ fontStyle, onFontStyleChange }) {
+  if (!fontStyle || !onFontStyleChange) return null
+  return (
+    <div style={{ background: "#F7F5F0", borderRadius: 12, padding: "16px 18px", marginBottom: 20, border: "1px solid #E5E0D5" }}>
+      <p style={{ fontSize: 12, fontWeight: 600, color: "#2C2416", marginBottom: 14, letterSpacing: "0.04em" }}>
+        FONT STYLE
+      </p>
+      {FONT_SLIDERS.map(({ key, label, min, max, unit }) => (
+        <div key={key} style={{ marginBottom: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+            <label style={{ fontSize: 11, color: "#6B5E45", fontWeight: 500 }}>{label}</label>
+            <span style={{ fontSize: 11, color: "#2C2416", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
+              {fontStyle[key]}{unit}
+            </span>
+          </div>
+          <input
+            type="range"
+            min={min}
+            max={max}
+            value={fontStyle[key]}
+            onChange={e => onFontStyleChange(key, Number(e.target.value))}
+            style={{ width: "100%", accentColor: "#2C2416", height: 4, cursor: "pointer" }}
+          />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export default function Step4({ glyphs = [], fontStyle, onFontStyleChange, onFontReady }) {
   const [buildState,   setBuildState]   = useState('idle')
   const [progress,     setProgress]     = useState({ pct: 0, label: '' })
   const [buildResult,  setBuildResult]  = useState(null)
@@ -548,6 +586,9 @@ export default function Step4({ glyphs = [], onFontReady }) {
           <p style={{ fontSize: 11, color: C.inkMd, marginTop: 3 }}>กลับไป Step 3 เพื่อ extract glyphs จากไฟล์ PDF ก่อน</p>
         </div>
       )}
+
+      {/* ── Font Style Sliders (P1.1) ───────────────────────────────────────── */}
+      <FontStylePanel fontStyle={fontStyle} onFontStyleChange={onFontStyleChange} />
 
       {/* ── Stats ─────────────────────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>

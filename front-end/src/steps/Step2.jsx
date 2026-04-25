@@ -203,6 +203,23 @@ async function parsePdf(file) {
 
   try {
     pdf = await loadingTask.promise
+  } catch (err) {
+    // Handle specific PDF error types with Thai-friendly messages
+    if (err?.name === 'InvalidPDFException' || err?.message?.includes('Invalid PDF')) {
+      throw new Error('ไฟล์ PDF เสียหายหรือไม่ถูกต้อง กรุณาลอง export PDF ใหม่อีกครั้ง')
+    }
+    if (err?.name === 'MissingPDFException') {
+      throw new Error('ไม่พบไฟล์ PDF กรุณาลองอัปโหลดใหม่')
+    }
+    if (err?.name === 'PasswordException') {
+      throw new Error('ไฟล์ PDF มีรหัสผ่าน กรุณาถอดรหัสก่อนอัปโหลด')
+    }
+    throw new Error('ไม่สามารถอ่าน PDF ได้: ' + (err?.message ?? 'unknown error'))
+  }
+
+  // Dummy try block reopened for page-level processing
+  try {
+    pdf = pdf  // already assigned above
 
     const pages = []
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
