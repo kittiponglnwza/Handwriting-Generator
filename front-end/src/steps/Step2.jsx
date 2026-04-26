@@ -441,7 +441,7 @@ function DetectionStatus({ parsedFile }) {
         borderRadius:12, padding:"14px 16px", marginBottom:20,
       }}>
         <p style={{ fontSize:13, fontWeight:600, color:C.sage, marginBottom:2 }}>
-          ✅ Detected {characters.length} characters from QR
+          🗸  Detected {characters.length} characters from QR
         </p>
         <p style={{ fontSize:11, color:C.inkMd }}>
           Characters automatically extracted from QR code — ready for the next step
@@ -459,7 +459,7 @@ function DetectionStatus({ parsedFile }) {
         borderRadius:12, padding:"14px 16px", marginBottom:20,
       }}>
         <p style={{ fontSize:13, fontWeight:600, color:C.sage, marginBottom:2 }}>
-          ✅ Using {characters.length} manually entered characters
+          🗸  Using {characters.length} manually entered characters
         </p>
         <p style={{ fontSize:11, color:C.inkMd }}>
           Entered manually — edit below if needed
