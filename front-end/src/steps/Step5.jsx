@@ -40,12 +40,12 @@ const T = {
 
 // ─── Paper configs ────────────────────────────────────────────────────────────
 const PAPERS = [
-  { id: "blank",   label: "เปล่า",    bg: "#FDFAF5", texture: false },
-  { id: "ruled",   label: "เส้นบรรทัด", bg: "#FDFAF5", texture: "ruled" },
-  { id: "grid",    label: "ตาราง",    bg: "#FDFAF5", texture: "grid" },
-  { id: "aged",    label: "กระดาษเก่า", bg: "#F2EBD9", texture: false },
-  { id: "dark",    label: "กระดาน",   bg: "#1A1F2E", texture: false },
-  { id: "kraft",   label: "กระดาษน้ำตาล", bg: "#D4B896", texture: false },
+  { id: "blank",   label: "Blank",       bg: "#FDFAF5", texture: false },
+  { id: "ruled",   label: "Ruled",       bg: "#FDFAF5", texture: "ruled" },
+  { id: "grid",    label: "Grid",        bg: "#FDFAF5", texture: "grid" },
+  { id: "aged",    label: "Aged",        bg: "#F2EBD9", texture: false },
+  { id: "dark",    label: "Blackboard",  bg: "#1A1F2E", texture: false },
+  { id: "kraft",   label: "Kraft",       bg: "#D4B896", texture: false },
 ]
 
 const SIZES = [10,12,14,16,18,20,24,28,32,36,42,48,56,64,72,96]
@@ -193,7 +193,7 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
   }, [ttfBuffer])
 
   // Editor state
-  const [text,      setText]    = useState("สวัสดีชาวโลก\nนี่คือลายมือของฉัน")
+  const [text,      setText]    = useState("Hello World\nThis is my handwriting")
   const [fontSize,  setFS]      = useState(32)
   const [lineHeight,setLH]      = useState(1.8)
   const [letterSp,  setLS]      = useState(0.02)
@@ -384,7 +384,7 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
         {/* Shuffle button — PUA randomization */}
         <TBtnDark
           onClick={() => setRandSeed(s => s + 1)}
-          title={hasPua ? `สุ่ม variant ใหม่ (PUA seed: ${randomSeed})` : "Build font ก่อนเพื่อใช้ PUA สุ่ม"}
+          title={hasPua ? `Reshuffle variants (PUA seed: ${randomSeed})` : "Build font first to enable PUA shuffle"}
           disabled={!hasPua}
         >🎲</TBtnDark>
 
@@ -463,16 +463,16 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
       }}>
         <span style={{ fontSize: 11, color: statusColor, fontFamily: "monospace" }}>{statusDot}</span>
         <span style={{ fontSize: 10, color: T.inkMd, letterSpacing: "0.04em" }}>
-          {fontStatus === 'idle'    && "รอ Build Font จาก Step 4"}
-          {fontStatus === 'loading' && "กำลังโหลด font…"}
+          {fontStatus === 'idle'    && "Waiting for font build from Step 4"}
+          {fontStatus === 'loading' && "Loading font…"}
           {fontStatus === 'ready'   && (canUseFont
             ? `MyHandwriting — ${glyphMap.size} glyphs ✓`
-            : `fallback font (ขาด ${missingChars.length} glyphs)`)}
-          {fontStatus === 'error'   && "โหลด font ไม่สำเร็จ"}
+            : `fallback font (missing ${missingChars.length} glyphs)`)}
+          {fontStatus === 'error'   && "Failed to load font"}
         </span>
         {fontStatus === 'ready' && hasPua && renderMode === 'font' && (
           <span style={{ marginLeft: 8, fontSize: 9, color: T.gold, letterSpacing: "0.06em" }}>
-            ✦ PUA MODE — สุ่ม variant ต่อ position (กด 🎲 เพื่อสุ่มใหม่)
+            ✦ PUA MODE — random variant per position (press 🎲 to reshuffle)
           </span>
         )}
         {renderMode === 'svg' && glyphMap.size > 0 && (
@@ -481,7 +481,7 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
           </span>
         )}
         <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 9, color: T.inkLt }}>{text.replace(/\n/g,"").length} ตัวอักษร</span>
+        <span style={{ fontSize: 9, color: T.inkLt }}>{text.replace(/\n/g,"").length} characters</span>
       </div>
 
       {/* ── BODY ──────────────────────────────────────────────────────────── */}
@@ -533,7 +533,7 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
             ) : (
               /* SVG mode แต่ยังไม่มี glyph */
               <div style={{ color: T.inkLt, fontSize: 13, fontStyle: "italic" }}>
-                ยังไม่มี glyph data — อัปโหลด PDF ก่อน
+                No glyph data yet — upload a PDF first
               </div>
             )}
 
@@ -554,7 +554,7 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
                 <p style={{
                   fontSize: 14 * zoom, color: isDark ? "rgba(255,255,255,.15)" : "rgba(0,0,0,.15)",
                   fontFamily: "Georgia, serif", fontStyle: "italic",
-                }}>พิมพ์ข้อความด้านล่าง…</p>
+                }}>Type a message below…</p>
               </div>
             )}
           </div>
@@ -570,8 +570,8 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
             {/* Panel tabs */}
             <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, background: T.paperDk }}>
               {[
-                { id: "style",  label: "สไตล์"  },
-                { id: "paper",  label: "กระดาษ" },
+                { id: "style",  label: "Style"  },
+                { id: "paper",  label: "Paper"  },
                 { id: "export", label: "Export" },
               ].map(t => (
                 <button key={t.id} onClick={() => setPanel(t.id)} style={{
@@ -611,17 +611,17 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
                   ))}
                 </div>
 
-                <PLabel>ขนาด <Dim>{fontSize}px</Dim></PLabel>
+                <PLabel>Size <Dim>{fontSize}px</Dim></PLabel>
                 <input type="range" min={8} max={120} value={fontSize}
                   onChange={e => setFS(+e.target.value)}
                   style={sliderStyle} />
 
-                <PLabel>บรรทัด <Dim>{lineHeight.toFixed(1)}</Dim></PLabel>
+                <PLabel>Line height <Dim>{lineHeight.toFixed(1)}</Dim></PLabel>
                 <input type="range" min={1} max={3} step={0.1} value={lineHeight}
                   onChange={e => setLH(+e.target.value)}
                   style={sliderStyle} />
 
-                <PLabel>ระยะ <Dim>{(letterSp * 100).toFixed(0)}%</Dim></PLabel>
+                <PLabel>Letter spacing <Dim>{(letterSp * 100).toFixed(0)}%</Dim></PLabel>
                 <input type="range" min={-0.05} max={0.25} step={0.005} value={letterSp}
                   onChange={e => setLS(+e.target.value)}
                   style={sliderStyle} />
@@ -631,7 +631,7 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                   <div>
                     <p style={{ fontSize: 11, fontWeight: 600, color: T.ink }}>Signature Mode</p>
-                    <p style={{ fontSize: 9, color: T.inkLt, marginTop: 2 }}>เพิ่ม italic slant</p>
+                    <p style={{ fontSize: 9, color: T.inkLt, marginTop: 2 }}>Add italic slant</p>
                   </div>
                   <Toggle value={signMode} onChange={setSign} />
                 </div>
@@ -641,8 +641,8 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
                 <PLabel>Render Mode</PLabel>
                 <div style={{ background: "#F0EBE0", borderRadius: 8, padding: "10px 12px", marginBottom: 12 }}>
                   <p style={{ fontSize: 10, color: T.inkMd, lineHeight: 1.6 }}>
-                    <b style={{ color: T.ink }}>Font ✦PUA</b> — TTF จริง สุ่ม variant ต่อ position<br/>
-                    <b style={{ color: T.rust }}>SVG</b> — วาด path ตรงๆ สุ่ม variant ต่อตัวอักษร
+                    <b style={{ color: T.ink }}>Font ✦PUA</b> — real TTF, random variant per position<br/>
+                    <b style={{ color: T.rust }}>SVG</b> — renders paths directly, random variant per character
                   </p>
                   {hasPua && renderMode === 'font' && (
                     <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
@@ -657,12 +657,12 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
                           cursor: "pointer", fontFamily: "inherit",
                           letterSpacing: "0.06em",
                         }}
-                      >🎲 สุ่ม Variant ใหม่</button>
+                      >🎲 Reshuffle Variants</button>
                     </div>
                   )}
                   {!hasPua && (
                     <p style={{ fontSize: 9, color: T.rust, marginTop: 6 }}>
-                      ⚠ Build font จาก Step 4 ก่อนเพื่อใช้ PUA mode
+                      ⚠ Build font from Step 4 first to enable PUA mode
                     </p>
                   )}
                 </div>
@@ -726,14 +726,14 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
                   {/* กรณีไม่มี puaMap */}
                   {!hasPua && (
                     <p style={{ fontSize: 9, color: T.rust, fontFamily: "monospace" }}>
-                      puaMap ไม่ถูกส่งมา → ต้อง Build font ใหม่จาก Step 4
+                      puaMap not received — rebuild font from Step 4
                     </p>
                   )}
                 </div>
 
                 {missingChars.length > 0 && (
                   <div style={{ padding: "10px 12px", background: "#FEF6E8", border: `1px solid ${T.gold}`, borderRadius: 8 }}>
-                    <p style={{ fontSize: 10, color: T.gold, fontWeight: 700, marginBottom: 4 }}>⚠ ขาด {missingChars.length} glyphs</p>
+                    <p style={{ fontSize: 10, color: T.gold, fontWeight: 700, marginBottom: 4 }}>⚠ Missing {missingChars.length} glyphs</p>
                     <p style={{ fontSize: 10, color: T.inkMd, letterSpacing: "0.1em" }}>{missingChars.join("  ")}</p>
                   </div>
                 )}
@@ -741,7 +741,7 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
 
               {/* ── PAPER PANEL ── */}
               {panel === "paper" && <>
-                <PLabel>พื้นหลัง</PLabel>
+                <PLabel>Background</PLabel>
                 <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 18 }}>
                   {PAPERS.map(p => (
                     <button key={p.id} onClick={() => setPaper(p.id)} style={{
@@ -781,10 +781,10 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
 
               {/* ── EXPORT PANEL ── */}
               {panel === "export" && <>
-                <PLabel>ข้อความ</PLabel>
+                <PLabel>Text</PLabel>
                 <textarea
                   value={text} onChange={e => setText(e.target.value)}
-                  rows={7} placeholder="พิมพ์ที่นี่…"
+                  rows={7} placeholder="Type here…"
                   style={{
                     width: "100%", border: `1px solid ${T.border}`, borderRadius: 8,
                     padding: "10px 12px", fontSize: 12, fontFamily: "inherit",
@@ -797,9 +797,9 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
                 <PLabel>Export</PLabel>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   <ExportRow icon="↓" label="Export PNG" sub="2× Retina" color={T.indigo} onClick={exportPNG} loading={exporting === "png"} />
-                  <ExportRow icon={copied ? "✓" : "⎘"} label="Copy Text" sub={copied ? "Copied!" : "คัดลอก"} color={copied ? T.sage : T.inkMd} onClick={copyText} />
-                  <ExportRow icon="⬡" label="Font .ttf" sub="เร็วๆ นี้" color={T.inkLt} disabled />
-                  <ExportRow icon="⬢" label="PDF" sub="เร็วๆ นี้" color={T.inkLt} disabled />
+                  <ExportRow icon={copied ? "✓" : "⎘"} label="Copy Text" sub={copied ? "Copied!" : "Copy"} color={copied ? T.sage : T.inkMd} onClick={copyText} />
+                  <ExportRow icon="⬡" label="Font .ttf" sub="Coming soon" color={T.inkLt} disabled />
+                  <ExportRow icon="⬢" label="PDF" sub="Coming soon" color={T.inkLt} disabled />
                 </div>
 
                 <Hr />
@@ -822,7 +822,7 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
                       }
                     </div>
                   ))}
-                  {glyphMap.size === 0 && <p style={{ fontSize: 10, color: T.inkLt, padding: "2px 0" }}>ยังไม่มี glyphs</p>}
+                  {glyphMap.size === 0 && <p style={{ fontSize: 10, color: T.inkLt, padding: "2px 0" }}>No glyphs yet</p>}
                 </div>
               </>}
             </div>
@@ -837,12 +837,12 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
         padding: "10px 18px", gap: 12, flexShrink: 0,
       }}>
         <span style={{ fontSize: 10, color: T.inkLt, letterSpacing: "0.1em", textTransform: "uppercase", whiteSpace: "nowrap", userSelect: "none" }}>
-          ✍ พิมพ์
+          ✍ Type
         </span>
         <textarea
           value={text} onChange={e => setText(e.target.value)}
           rows={2}
-          placeholder="พิมพ์ข้อความ... กด Enter เพื่อขึ้นบรรทัดใหม่"
+          placeholder="Type here… press Enter for a new line"
           style={{
             flex: 1, border: `1px solid rgba(255,255,255,.12)`, borderRadius: 6,
             padding: "8px 14px", fontSize: 13, fontFamily: "inherit",
@@ -853,7 +853,7 @@ export default function Step5({ versionedGlyphs = [], extractedGlyphs = [], ttfB
           onBlur={e  => e.target.style.borderColor = "rgba(255,255,255,.12)"}
         />
         <span style={{ fontSize: 9, color: T.inkLt, whiteSpace: "nowrap" }}>
-          {text.replace(/\n/g,"").length} ตัว
+          {text.replace(/\n/g,"").length} chars
         </span>
       </div>
     </div>

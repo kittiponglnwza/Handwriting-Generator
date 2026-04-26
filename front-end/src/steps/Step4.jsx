@@ -87,7 +87,7 @@ function BuildLogPanel({ entries, maxLines = 120 }) {
       border: `1px solid #2A2318`,
     }}>
       {visible.length === 0 && (
-        <span style={{ color: '#4A3F30' }}>— ยังไม่มี log —</span>
+        <span style={{ color: '#4A3F30' }}>— no log entries yet —</span>
       )}
       {visible.map((entry, i) => (
         <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
@@ -189,7 +189,7 @@ function SkippedGlyphsPanel({ skipped }) {
       borderRadius: 10, padding: '12px 16px', marginTop: 12,
     }}>
       <p style={{ fontSize: 12, color: C.amber, fontWeight: 600, marginBottom: 6 }}>
-        ⚠ {skipped.length} glyph ถูกข้าม (malformed paths)
+        ⚠ {skipped.length} glyph(s) skipped (malformed paths)
       </p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, maxHeight: 100, overflowY: 'auto' }}>
         {skipped.map((s, i) => (
@@ -264,7 +264,7 @@ function FontPreviewPane({ fontName, ttfBuffer }) {
             color: fontLoaded ? '#2E6B3E' : C.amber,
             border: `1px solid ${fontLoaded ? '#A8D5B5' : C.amberMd}`,
           }}>
-            {fontLoaded ? '✓ ฟอนต์โหลดแล้ว' : '⟳ กำลังโหลดฟอนต์…'}
+            {fontLoaded ? '✓ Font loaded' : '⟳ Loading font…'}
           </span>
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
@@ -294,12 +294,12 @@ function FontPreviewPane({ fontName, ttfBuffer }) {
           outline: 'none',
           transition: 'border-color 0.2s',
         }}
-        placeholder="พิมพ์ข้อความเพื่อดูตัวอย่างฟอนต์..."
+        placeholder="Type here to preview the font…"
         spellCheck={false}
       />
       {!ttfBuffer && (
         <p style={{ fontSize: 10, color: C.inkLt, marginTop: 6 }}>
-          ⚠ รอ build font ให้เสร็จก่อน (กำลัง build อัตโนมัติ…)
+          ⚠ Waiting for font build to finish (auto-building…)
         </p>
       )}
     </div>
@@ -312,23 +312,23 @@ function InstallGuidePanel({ fontName }) {
   const steps = {
     mac: [
       `Double-click ${fontName}.ttf`,
-      'คลิก "Install Font" ที่มุมซ้ายล่าง',
-      'ฟอนต์จะปรากฏใน Font Book และพร้อมใช้งาน',
+      'Click "Install Font" in the bottom-left corner',
+      'Font will appear in Font Book and be ready to use',
     ],
     win: [
       `Right-click ${fontName}.ttf`,
-      'เลือก "Install" (เฉพาะ user) หรือ "Install for all users"',
-      'ฟอนต์จะพร้อมใช้งานใน Word, Photoshop ฯลฯ',
+      'Choose "Install" (current user) or "Install for all users"',
+      'Font will be available in Word, Photoshop, etc.',
     ],
     linux: [
       `mkdir -p ~/.local/share/fonts`,
       `cp ${fontName}.ttf ~/.local/share/fonts/`,
       `fc-cache -fv`,
-      'ฟอนต์พร้อมใช้ในแอปทั้งหมด',
+      'Font ready in all applications',
     ],
     web: [
-      `คัดลอก ${fontName}.ttf และ ${fontName}.woff ไปใส่ server`,
-      'ใส่ @font-face ใน CSS (ดูใน ZIP: fontface.css)',
+      `Copy ${fontName}.ttf and ${fontName}.woff to your server`,
+      'Add @font-face in CSS (see fontface.css in ZIP)',
       `font-family: '${fontName}'; font-feature-settings: "calt" 1, "salt" 1;`,
     ],
   }
@@ -369,11 +369,11 @@ function InstallGuidePanel({ fontName }) {
 
 // ─── Font Quality Slider config (P1.1) ───────────────────────────────────────
 const FONT_SLIDERS = [
-  { key: "roughness",  label: "ความสั่น",   min: 0,   max: 100, unit: ""  },
-  { key: "neatness",   label: "ความเรียบ",  min: 0,   max: 100, unit: ""  },
-  { key: "slant",      label: "เอียง",      min: -30, max: 30,  unit: "°" },
-  { key: "boldness",   label: "น้ำหนัก",    min: 70,  max: 150, unit: "%" },
-  { key: "randomness", label: "ความสุ่ม",   min: 0,   max: 100, unit: ""  },
+  { key: "roughness",  label: "Roughness",   min: 0,   max: 100, unit: ""  },
+  { key: "neatness",   label: "Neatness",  min: 0,   max: 100, unit: ""  },
+  { key: "slant",      label: "Slant",      min: -30, max: 30,  unit: "°" },
+  { key: "boldness",   label: "Weight",    min: 70,  max: 150, unit: "%" },
+  { key: "randomness", label: "Randomness",   min: 0,   max: 100, unit: ""  },
 ]
 
 function FontStylePanel({ fontStyle, onFontStyleChange }) {
@@ -542,7 +542,7 @@ export default function Step4({ glyphs = [], fontStyle, onFontStyleChange, onFon
 
   // ── Tabs ───────────────────────────────────────────────────────────────────
   const TABS = [
-    { id: 'overview',  label: 'ภาพรวม' },
+    { id: 'overview',  label: 'Overview' },
     { id: 'glyphs',    label: `Glyphs (${charCount})` },
     { id: 'features',  label: 'OT Features' },
     { id: 'metrics',   label: 'Font Metrics' },
@@ -588,8 +588,8 @@ export default function Step4({ glyphs = [], fontStyle, onFontStyleChange, onFon
           background: C.amberLt, border: `1px solid ${C.amberMd}`,
           borderRadius: 12, padding: '14px 18px', marginBottom: 20,
         }}>
-          <p style={{ fontSize: 13, color: C.amber, fontWeight: 500 }}>⚠ ยังไม่มีข้อมูล glyph</p>
-          <p style={{ fontSize: 11, color: C.inkMd, marginTop: 3 }}>กลับไป Step 3 เพื่อ extract glyphs จากไฟล์ PDF ก่อน</p>
+          <p style={{ fontSize: 13, color: C.amber, fontWeight: 500 }}>⚠ No glyph data yet</p>
+          <p style={{ fontSize: 11, color: C.inkMd, marginTop: 3 }}>Go back to Step 3 to extract glyphs from the PDF first</p>
         </div>
       )}
 
@@ -663,9 +663,9 @@ export default function Step4({ glyphs = [], fontStyle, onFontStyleChange, onFon
                     )
                   })()}
                   <p style={{ fontSize: 11, color: C.inkLt, lineHeight: 1.9 }}>
-                    <b style={{ color: C.inkMd }}>.default</b> — ต้นฉบับ<br />
-                    <b style={{ color: C.inkMd }}>.alt1</b> — หางตก (droop)<br />
-                    <b style={{ color: C.inkMd }}>.alt2</b> — เส้นแกว่ง (wavy)
+                    <b style={{ color: C.inkMd }}>.default</b> — original<br />
+                    <b style={{ color: C.inkMd }}>.alt1</b> — drooping tail<br />
+                    <b style={{ color: C.inkMd }}>.alt2</b> — wavy stroke
                   </p>
                   <div style={{ marginTop: 10, background: '#1E1A14', borderRadius: 8, padding: '8px 12px', fontFamily: 'monospace', fontSize: 10, color: '#7CC4B0', lineHeight: 1.9 }}>
                     <span style={{ color: '#5C5340' }}># calt — consecutive rotation</span><br />
@@ -996,9 +996,9 @@ export default function Step4({ glyphs = [], fontStyle, onFontStyleChange, onFon
         {buildState !== 'done' && (
           <Btn onClick={handleBuild} disabled={!hasGlyphs || buildState === 'building'} variant="sage" size="md">
             {buildState === 'building'
-              ? `⟳ กำลัง build… ${progress.pct}%`
+              ? `⟳ Building… ${progress.pct}%`
               : buildState === 'error'
-              ? '↺ ลองอีกครั้ง'
+              ? '↺ Retry'
               : `⚙ Build Font — ${charCount} characters`}
           </Btn>
         )}

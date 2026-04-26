@@ -15,7 +15,7 @@ const Step5 = lazy(() => import("./steps/Step5"))
 const STEPS = [
   { id: 1, label: "Generate Template", icon: "01" },
   { id: 2, label: "Upload PDF",        icon: "02" },
-  { id: 3, label: "ตรวจ Glyphs",       icon: "03" },
+  { id: 3, label: "Verify Glyphs",       icon: "03" },
   { id: 4, label: "DNA Profile",       icon: "04" },
   { id: 5, label: "Preview",           icon: "05" },
 ]
@@ -120,7 +120,7 @@ export default function App() {
     return "—"
   }, [appState.parsedFile, appState.glyphResult])
 
-  const nextLabel = { 1: "ถัดไป →", 2: "ถัดไป →", 3: "สร้าง DNA →", 4: "Preview →", 5: null }
+  const nextLabel = { 1: "Next →", 2: "Next →", 3: "Build DNA →", 4: "Preview →", 5: null }
   // Alias for rendering — uses the synchronously-computed safe step
   const activeStep = effectiveStep
 
@@ -173,7 +173,7 @@ export default function App() {
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{ width: 30, height: 30, borderRadius: "50%", background: C.bgMuted, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, color: C.inkMd }}>T</div>
               <div>
-                <p style={{ fontSize: 11, fontWeight: 500, color: C.ink }}>ลายมือ #1</p>
+                <p style={{ fontSize: 11, fontWeight: 500, color: C.ink }}>Handwriting #1</p>
                 <p style={{ fontSize: 10, color: C.inkLt, marginTop: 1 }}>{sidebarGlyphCount} • 10 MB max</p>
               </div>
             </div>
@@ -187,7 +187,7 @@ export default function App() {
               <span style={{ fontSize: 12, color: C.inkLt, marginLeft: 8 }}>• Step {activeStep} of {STEPS.length}</span>
             </div>
             <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-              {activeStep > 1 && <Btn onClick={() => setStep(s => s - 1)} variant="ghost" size="sm">← กลับ</Btn>}
+              {activeStep > 1 && <Btn onClick={() => setStep(s => s - 1)} variant="ghost" size="sm">← Back</Btn>}
               {nextLabel[activeStep] && <Btn onClick={handleNext} disabled={!canNext} variant="primary" size="sm">{nextLabel[activeStep]}</Btn>}
             </div>
           </header>

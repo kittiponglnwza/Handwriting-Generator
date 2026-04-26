@@ -54,14 +54,14 @@ export function GridDebugOverlay({ glyphs }) {
   }
 
   if (!glyphs?.length)
-    return <p style={{ fontSize: 11, color: C.inkLt, padding: "8px 0" }}>ยังไม่มีข้อมูล glyph</p>
+    return <p style={{ fontSize: 11, color: C.inkLt, padding: "8px 0" }}>No data available glyph</p>
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(72px, 1fr))", gap: 6 }}>
       {glyphs.map(g => {
         const glyphStatus = g.confidence?.status || g.status || "ok"
         const s = stStyle[glyphStatus] || stStyle.ok
-        // รองรับทั้ง Vision Engine (preview) และ legacy (svgPath)
+        // Supports both Vision Engine (preview) and legacy (svgPath)
         const hasPreview = !!g.preview
         const hasSvg = !!g.svgPath
         return (
@@ -90,13 +90,13 @@ export function GridDebugOverlay({ glyphs }) {
 }
 
 // ─── PageDebugOverlay ────────────────────────────────────────────────────────
-// แสดง canvas ของแต่ละหน้าพร้อม overlay:
-//   🟢 green = outer cell rect (จาก regDots จริง หรือ fallback geometry)
-//   🔵 blue  = crop zone (หลัง inset)
+// Shows canvas per page with overlay:
+//   🟢 green = outer cell rect (from regDots actual or fallback geometry)
+//   🔵 blue  = crop zone (after inset)
 
 export function PageDebugOverlay({ pages, calibration, chars, getGridGeometry }) {
   if (!pages?.length)
-    return <p style={{ fontSize: 11, color: C.inkLt }}>ยังไม่มีข้อมูลหน้า</p>
+    return <p style={{ fontSize: 11, color: C.inkLt }}>No page data</p>
 
   return (
     <div>
@@ -107,12 +107,12 @@ export function PageDebugOverlay({ pages, calibration, chars, getGridGeometry })
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
           <span style={{ width: 14, height: 14, border: "2px solid #3b82f6", borderRadius: 2, display: "inline-block" }} />
-          crop zone — ปรับ slider แล้ว overlay อัปเดตตาม
+          crop zone — update overlay as slider changes
         </div>
       </div>
       <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 8 }}>
         {pages.map((page, pi) => {
-          // หา cursor จริงจาก pageMeta ถ้ามี ไม่งั้นใช้ sequential
+          // find cursor from pageMeta if available, otherwise use sequential
           const pageCharsStart = page.pageMeta?.cellFrom > 0
             ? page.pageMeta.cellFrom - 1
             : pi * GRID_COLS * 6
@@ -149,7 +149,7 @@ function PageCanvas({ page, pageChars, pageCharsStart, calibration, getGridGeome
     const ctx = canvas.getContext("2d")
     ctx.clearRect(0, 0, DISPLAY_W, DISPLAY_H)
 
-    // วาดภาพ PDF หน้านั้น
+    // render PDF page canvas
     const src = page.ctx?.canvas
     if (src) {
       ctx.drawImage(src, 0, 0, DISPLAY_W, DISPLAY_H)
@@ -161,12 +161,12 @@ function PageCanvas({ page, pageChars, pageCharsStart, calibration, getGridGeome
     const n = pageChars.length
     const insetRatio = GRID_GEOMETRY.insetRatio
 
-    // ── ลองใช้ regDots ก่อน (แม่นที่สุด) ──────────────────────────────────
+    // ── try regDots first (most accurate) ─────────────────────────────────────
     const hasRegDots = (page.regDots?.length ?? 0) >= 4
     let cellRects = null
 
     if (hasRegDots) {
-      // สร้าง cell rects จาก reg dots จริง
+      // build cell rects from reg dots actual
       const raw = buildCellRectsFromDots(page.regDots, page.pageWidth, page.pageHeight, GRID_COLS, n)
       if (raw?.length) {
         const sorted = sortCellRectsReadingOrder(raw)
@@ -175,7 +175,7 @@ function PageCanvas({ page, pageChars, pageCharsStart, calibration, getGridGeome
     }
 
     if (cellRects?.length === n) {
-      // ── วาดจาก regDots ──
+      // ── draw from regDots ──
       cellRects.forEach(rect => {
         // 🟢 outer cell
         ctx.strokeStyle = "#22c55e"
@@ -194,7 +194,7 @@ function PageCanvas({ page, pageChars, pageCharsStart, calibration, getGridGeome
         ctx.strokeRect(cx, cy, cw, ch)
       })
     } else {
-      // ── fallback: คำนวณจาก geometry + calibration ──
+      // ── fallback: calculate from geometry + calibration ──
       const auto = page.autoCalibration ?? { offsetX: 0, offsetY: 0, cellAdjust: 0, gapAdjust: 0 }
       const cal  = calibration ?? { offsetX: 0, offsetY: 0, cellAdjust: 0, gapAdjust: 0 }
       const merged = {
@@ -236,7 +236,7 @@ function PageCanvas({ page, pageChars, pageCharsStart, calibration, getGridGeome
   return (
     <div style={{ flexShrink: 0 }}>
       <p style={{ fontSize: 10, color: C.inkMd, marginBottom: 4, textAlign: "center" }}>
-        หน้า {page.pageNumber} (ช่อง {cellFrom}–{cellTo})
+        Page {page.pageNumber} (cells {cellFrom}–{cellTo})
         {(page.regDots?.length ?? 0) >= 4
           ? <span style={{ color: "#22c55e", marginLeft: 4 }}>● regDots</span>
           : <span style={{ color: "#f59e0b", marginLeft: 4 }}>● fallback</span>

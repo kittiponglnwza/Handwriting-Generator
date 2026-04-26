@@ -39,6 +39,79 @@ import { PerformanceGovernor } from "../engine/PerformanceGovernor.js"
 import { VisionEngine } from "../core/vision/VisionEngine.js"
 import QADashboard from "../components/QADashboard.jsx"
 
+
+// ── Inject skeleton shimmer keyframe once ──────────────────────────────────────
+if (typeof document !== "undefined" && !document.getElementById("step3-skeleton-kf")) {
+  const s = document.createElement("style")
+  s.id = "step3-skeleton-kf"
+  s.textContent = `
+    @keyframes skeletonShimmer {
+      0%   { background-position: -400px 0 }
+      100% { background-position:  400px 0 }
+    }
+  `
+  document.head.appendChild(s)
+}
+
+// ── SkeletonCard — single shimmer placeholder ──────────────────────────────────
+function SkeletonCard() {
+  const shimmer = {
+    background: "linear-gradient(90deg, #f0ede8 25%, #e8e4de 50%, #f0ede8 75%)",
+    backgroundSize: "800px 100%",
+    animation: "skeletonShimmer 1.4s ease-in-out infinite",
+    borderRadius: 8,
+  }
+  return (
+    <div style={{
+      background: "#f7f5f0",
+      border: "1.5px solid #e8e4de",
+      borderRadius: 12,
+      padding: "8px 6px",
+      display: "flex",
+      flexDirection: "column",
+      gap: 6,
+      alignItems: "center",
+    }}>
+      {/* image placeholder */}
+      <div style={{ width: "100%", aspectRatio: "1", borderRadius: 8, ...shimmer }} />
+      {/* character label */}
+      <div style={{ width: "40%", height: 10, borderRadius: 4, ...shimmer }} />
+      {/* index label */}
+      <div style={{ width: "60%", height: 8, borderRadius: 4, ...shimmer }} />
+      {/* status label */}
+      <div style={{ width: "50%", height: 8, borderRadius: 4, ...shimmer }} />
+    </div>
+  )
+}
+
+// ── SkeletonGrid — shows N skeleton cards while loading ────────────────────────
+function SkeletonGrid({ count = 20, label = "Extracting glyphs…" }) {
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+        <div style={{
+          width: 16, height: 16, borderRadius: "50%",
+          border: "2px solid #c8c0b0",
+          borderTopColor: "#6b5e45",
+          animation: "skeletonShimmer 0.8s linear infinite",
+          flexShrink: 0,
+        }} />
+        <span style={{ fontSize: 12, color: "#9e9278" }}>{label}</span>
+      </div>
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fill, minmax(88px, 1fr))",
+        gap: 8,
+        marginBottom: 20,
+      }}>
+        {Array.from({ length: count }).map((_, i) => (
+          <SkeletonCard key={i} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
   const chars = parsedFile?.characters ?? []
 
@@ -136,13 +209,13 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
       pageRef.current = { pages: profiledPages, totalPages: profiledPages.length }
       setAutoInfo(
         Number.isFinite(avgScore)
-          ? `Auto aligned ${profiledPages.length} หน้า (targets ${chars.length}, anchored ${anchorPages}, code ${codeAnchorPages}, avg score ${avgScore.toFixed(1)})`
-          : `Auto aligned ${profiledPages.length} หน้า (anchored ${anchorPages}, code ${codeAnchorPages})`
+          ? `Auto aligned ${profiledPages.length} page(s) — targets ${chars.length}, anchored ${anchorPages}, code ${codeAnchorPages}, avg score ${avgScore.toFixed(1)}`
+          : `Auto aligned ${profiledPages.length} page(s) — anchored ${anchorPages}, code ${codeAnchorPages}`
       )
       setPageVersion(v => v + 1)
       setError("")
     } catch (err) {
-      setError(err?.message ?? "เกิดข้อผิดพลาดในการโหลด glyphs")
+      setError(err?.message ?? "Failed to load glyphs")
       stateMachineRef.current?.transition(PipelineStates.ERROR, { error: err.message })
     }
   }, [parsedFile, chars.length])
@@ -170,7 +243,7 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
       
       // Update auto info with Vision Engine results
       const avgConfidence = (results.qaReport.averageConfidence * 100).toFixed(1)
-      const infoMessage = `Vision Engine: ${results.glyphs.length} glyphs extracted (avg confidence ${avgConfidence}%, processing time ${results.processingTime.toFixed(0)}ms)`
+      const infoMessage = `Vision Engine: ${results.glyphs.length} glyphs extracted — avg confidence ${avgConfidence}%, ${results.processingTime.toFixed(0)}ms`
       setAutoInfo(infoMessage)
       
       // Check memory usage
@@ -347,12 +420,12 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
     ok:        { border: C.sageMd,  bg: C.bgCard,  textColor: C.sage,  label: "OK" },
     missing:   { border: C.blushMd, bg: C.blushLt, textColor: C.blush, label: "Missing" },
     overflow:  { border: C.amberMd, bg: C.amberLt, textColor: C.amber, label: "Overflow" },
-    excellent: { border: C.sageMd,  bg: C.sageLt,  textColor: C.sage,  label: "ดีเยี่ยม" },
-    good:      { border: C.sageMd,  bg: C.sageLt,  textColor: C.sage,  label: "ดี" },
-    acceptable:{ border: C.amberMd, bg: C.amberLt, textColor: C.amber, label: "พอใช้" },
-    poor:      { border: C.amberMd, bg: C.amberLt, textColor: C.amber, label: "แย่" },
-    critical:  { border: C.blushMd, bg: C.blushLt, textColor: C.blush, label: "วิกฤต" },
-    error:     { border: C.blushMd, bg: C.blushLt, textColor: C.blush, label: "ผิดพลาด" },
+    excellent: { border: C.sageMd,  bg: C.sageLt,  textColor: C.sage,  label: "Excellent" },
+    good:      { border: C.sageMd,  bg: C.sageLt,  textColor: C.sage,  label: "Good" },
+    acceptable:{ border: C.amberMd, bg: C.amberLt, textColor: C.amber, label: "Acceptable" },
+    poor:      { border: C.amberMd, bg: C.amberLt, textColor: C.amber, label: "Poor" },
+    critical:  { border: C.blushMd, bg: C.blushLt, textColor: C.blush, label: "Critical" },
+    error:     { border: C.blushMd, bg: C.blushLt, textColor: C.blush, label: "Error" },
   }
 
   // ── Guards ──────────────────────────────────────────────────────────────────
@@ -360,7 +433,7 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
   if (!parsedFile) {
     return (
       <div className="fade-up">
-        <InfoBox color="amber">กรุณาอัปโหลดไฟล์ PDF ใน Step 2 ก่อน</InfoBox>
+        <InfoBox color="amber">Please upload a PDF file in Step 2 first</InfoBox>
       </div>
     )
   }
@@ -369,7 +442,7 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
     return (
       <div className="fade-up">
         <InfoBox color="amber">
-          ไม่พบตัวอักษรในไฟล์นี้ กลับ Step 2 เพื่อระบุตัวอักษรด้วยตนเอง
+          No characters found in this file — go back to Step 2 to enter them manually
         </InfoBox>
       </div>
     )
@@ -400,14 +473,14 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
       {/* Summary stats */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(80px, 1fr))", gap: 10, marginBottom: 20 }}>
         {[
-          { label: "ดีเยี่ยม",  val: summary.excellent, color: C.sage },
-          { label: "ดี",        val: summary.good,      color: C.sage },
-          { label: "พอใช้",    val: summary.acceptable, color: C.amber },
-          { label: "แย่",       val: summary.poor,      color: C.amber },
-          { label: "วิกฤต",    val: summary.critical,  color: C.blush },
+          { label: "Excellent",  val: summary.excellent, color: C.sage },
+          { label: "Good",        val: summary.good,      color: C.sage },
+          { label: "Acceptable",    val: summary.acceptable, color: C.amber },
+          { label: "Poor",       val: summary.poor,      color: C.amber },
+          { label: "Critical",    val: summary.critical,  color: C.blush },
           { label: "Overflow",  val: summary.overflow,  color: C.amber },
-          { label: "หาย",       val: summary.missing,   color: C.blush },
-          { label: "ทั้งหมด",  val: summary.total,     color: C.ink },
+          { label: "Missing",   val: summary.missing,   color: C.blush },
+          { label: "Total",     val: summary.total,     color: C.ink },
         ].map(s => {
           const style = stStyle[s.label] || stStyle.ok
           return (
@@ -422,22 +495,21 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
       {/* Source info */}
       {parsedFile.charSource === "qr" && (
         <InfoBox color="sage">
-          อ่านลำดับตัวอักษรจาก QR บนเทมเพลตแล้ว ({chars.length} ตัว)
+          Character order read from QR on the template ({chars.length} characters)
         </InfoBox>
       )}
       {parsedFile.charSource === "manual" && (
         <InfoBox color="sage">
-          ใช้ตัวอักษรที่ระบุเอง ({chars.length} ตัว)
+          Using manually entered characters ({chars.length} characters)
         </InfoBox>
       )}
 
       <InfoBox color="amber">
-        ถ้าตัวเขียนไม่ตรงกรอบ ให้ปรับ Grid Alignment ด้านล่างก่อน จากนั้นคลิกภาพเพื่อดูแบบขยาย
+        If glyphs are misaligned, adjust Grid Alignment below first, then click any image to zoom in
       </InfoBox>
       {isPartialRead && (
         <InfoBox color="amber">
-          ตอนนี้ระบบอ่านได้ {partialReadInfo.pageCharsCount}/{chars.length} ตัว
-          จาก {partialReadInfo.pagesUsed}/{partialReadInfo.totalPages} หน้า
+          Read {partialReadInfo.pageCharsCount}/{chars.length} characters from {partialReadInfo.pagesUsed}/{partialReadInfo.totalPages} page(s)
         </InfoBox>
       )}
       {error && <InfoBox color="amber">{error}</InfoBox>}
@@ -468,13 +540,13 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
         </p>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Adjuster 
-            label="เลื่อนซ้าย/ขวา (X)" 
+            label="Shift Left/Right (X)" 
             value={calibration.offsetX}    
             min={-160} max={160} step={1} 
             onChange={v => setCalibration(p => ({ ...p, offsetX: v }))} 
           />
           <Adjuster 
-            label="เลื่อนขึ้น/ลง (Y)"  
+            label="Shift Up/Down (Y)"  
             value={calibration.offsetY}    
             min={-160} max={160} step={1} 
             onChange={v => setCalibration(p => ({ ...p, offsetY: v }))} 
@@ -482,13 +554,13 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Adjuster 
-            label="ขนาดช่อง (Cell)"    
+            label="Cell Size"    
             value={calibration.cellAdjust} 
             min={-48}  max={48}  step={1} 
             onChange={v => setCalibration(p => ({ ...p, cellAdjust: v }))} 
           />
           <Adjuster 
-            label="ระยะห่างช่อง (Gap)" 
+            label="Cell Gap" 
             value={calibration.gapAdjust}  
             min={-30}  max={30}  step={1} 
             onChange={v => setCalibration(p => ({ ...p, gapAdjust: v }))} 
@@ -497,21 +569,21 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
         <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 12 }}>
           <div style={{ display: "flex", alignItems: "center", minHeight: 30 }}>
             {autoAligning
-              ? <span style={{ fontSize: 11, color: C.amber }}>⏳ กำลัง re-extract ด้วย calibration ใหม่...</span>
+              ? <span style={{ fontSize: 11, color: C.amber }}>⏳ Re-extracting with new calibration…</span>
               : tracing
-              ? <span style={{ fontSize: 11, color: C.sage }}>✦ กำลัง trace SVG paths... (รอสักครู่ก่อนไป Step 4)</span>
+              ? <span style={{ fontSize: 11, color: C.sage }}>✦ Tracing SVG paths… (please wait before proceeding to Step 4)</span>
               : autoInfo && <span style={{ fontSize: 11, color: C.inkLt }}>{autoInfo}</span>
             }
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <Btn onClick={handleVisionEngineExtraction} variant="primary" size="sm" disabled={autoAligning || pipelineState === PipelineStates.EXTRACTING}>
-              {autoAligning ? "กำลังประมวลผล..." : "ดึงด้วย Vision Engine"}
+              {autoAligning ? "Processing…" : "Extract via Vision Engine"}
             </Btn>
-            <Btn onClick={() => setRemovedIds(new Set())}            variant="ghost" size="sm" disabled={removedIds.size === 0}>คืนค่าตัวที่ลบ</Btn>
-            <Btn onClick={() => setCalibration(ZERO_CALIBRATION)}   variant="ghost" size="sm">รีเซ็ตกริด</Btn>
-            <Btn onClick={() => setShowDebug(v => !v)}               variant="ghost" size="sm">{showDebug   ? "ปิด Overlay"    : "ดู Grid Overlay"}</Btn>
-            <Btn onClick={() => setShowOverlay(v => !v)}             variant="ghost" size="sm">{showOverlay ? "ปิด Debug"      : "Debug Overlay"}</Btn>
-            <Btn onClick={() => setShowQADashboard(v => !v)}         variant="ghost" size="sm">{showQADashboard ? "ปิด QA"    : "QA Dashboard"}</Btn>
+            <Btn onClick={() => setRemovedIds(new Set())}            variant="ghost" size="sm" disabled={removedIds.size === 0}>Restore removed</Btn>
+            <Btn onClick={() => setCalibration(ZERO_CALIBRATION)}   variant="ghost" size="sm">Reset grid</Btn>
+            <Btn onClick={() => setShowDebug(v => !v)}               variant="ghost" size="sm">{showDebug   ? "Hide Grid Overlay" : "Show Grid Overlay"}</Btn>
+            <Btn onClick={() => setShowOverlay(v => !v)}             variant="ghost" size="sm">{showOverlay ? "Hide Debug"        : "Debug Overlay"}</Btn>
+            <Btn onClick={() => setShowQADashboard(v => !v)}         variant="ghost" size="sm">{showQADashboard ? "Hide QA"   : "QA Dashboard"}</Btn>
           </div>
         </div>
       </div>
@@ -520,7 +592,7 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
       {showDebug && (
         <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14, marginBottom: 14 }}>
           <p style={{ fontSize: 11, color: C.inkLt, marginBottom: 10 }}>
-            ภาพที่ crop จากแต่ละช่อง –{" "}
+            Cropped image per cell —{" "}
             <span style={{ color: "#00a046" }}>●</span> OK{" "}
             <span style={{ color: "#c83c3c" }}>●</span> Missing{" "}
             <span style={{ color: "#c88c00" }}>●</span> Overflow
@@ -540,15 +612,23 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
         </div>
       )}
 
-      {/* Glyph grid – คลิกการ์ดเพื่อเปิดตัวกรับตำแหน่งเฉพาะตัว */}
-      {displayGlyphs.length > 0 && (
+      {/* Skeleton loading — shown while extracting (autoAligning) or tracing */}
+      {(autoAligning || tracing) && (
+        <SkeletonGrid
+          count={Math.max(chars.length || 20, 4)}
+          label={autoAligning ? "Extracting glyphs via Vision Engine…" : "Tracing SVG paths…"}
+        />
+      )}
+
+      {/* Glyph grid — shown once loading is done */}
+      {!autoAligning && !tracing && displayGlyphs.length > 0 && (
         <div style={{ marginBottom: 8 }}>
           <p style={{ fontSize: 11, color: C.inkLt, marginBottom: 8 }}>
-            คลิกที่การ์ดเพื่อเปิดตัวกรับตำแหน่งเฉพาะตัวอักษรนั้น
+            Click a card to open the per-character position adjuster
           </p>
         </div>
       )}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(88px,1fr))", gap: 8, marginBottom: 20 }}>
+      <div style={{ display: autoAligning || tracing ? "none" : "grid", gridTemplateColumns: "repeat(auto-fill,minmax(88px,1fr))", gap: 8, marginBottom: 20 }}>
         {displayGlyphs.map(g => {
           const glyphStatus = g.confidence?.status || g.status
           const s = stStyle[glyphStatus] || stStyle.ok
@@ -560,11 +640,11 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
               {/* ปุ่มลบ */}
               <button type="button" onClick={e => { e.stopPropagation(); setRemovedIds(prev => { const n = new Set(prev); n.add(g.id); return n }) }}
                 style={{ position: "absolute", top: 4, right: 4, width: 20, height: 20, borderRadius: 999, border: `1px solid ${C.border}`, background: "#fff", color: C.inkMd, fontSize: 10, cursor: "pointer", zIndex: 1 }}
-                title="ลบช่องนี้">✕</button>
+                title="Remove this glyph">✕</button>
               {/* ภาพ glyph */}
               <button type="button" onClick={e => { e.stopPropagation(); const off = glyphOffsets[g.id] ?? {x:0,y:0}; setZoomGlyph({ ...g, preview: getAdjustedPreview(g, off.x, off.y) }) }}
                 style={{ width: "100%", aspectRatio: "1", borderRadius: 8, background: C.bgCard, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", marginBottom: 6, padding: 4, cursor: "zoom-in" }}
-                title="ดูภาพขยาย">
+                title="Zoom in">
                 <img src={getAdjustedPreview(g, glyphOffsets[g.id]?.x ?? 0, glyphOffsets[g.id]?.y ?? 0)} alt={`Glyph ${g.ch}`} style={{ width: "100%", height: "100%", objectFit: "contain", imageRendering: "auto" }} />
               </button>
               <p style={{ fontSize: 12, fontWeight: 500, color: C.ink }}>{g.ch}</p>
@@ -583,7 +663,7 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
               {/* hint เมื่อ active */}
               {isActive && (
                 <div style={{ position: "absolute", bottom: -1, left: 0, right: 0, background: C.ink, color: "#fff", fontSize: 8, borderRadius: "0 0 10px 10px", padding: "2px 0" }}>
-                  ▼ ดูตัวกรับด้านล่าง
+                  ▼ Adjuster below
                 </div>
               )}
             </div>
@@ -606,7 +686,7 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
             {/* Header */}
             <div style={{ padding: "10px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <p style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: C.inkLt, margin: 0 }}>
-                ตัวกรับตำแหน่งเฉพาะตัวอักษร: <b style={{ color: C.ink, textTransform: "none" }}>{activeGlyph.ch}</b>
+                Per-character position adjuster: <b style={{ color: C.ink, textTransform: "none" }}>{activeGlyph.ch}</b>
                 {" "}• HG{String(activeGlyph.index).padStart(3, "0")}
               </p>
               <div style={{ display: "flex", gap: 8 }}>
@@ -615,10 +695,10 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
                     size="sm" variant="ghost"
                     onClick={() => setGlyphOffsets(prev => { const n = { ...prev }; delete n[activeGlyph.id]; return n })}
                   >
-                    รีเซ็ตตำแหน่ง
+                    Reset position
                   </Btn>
                 )}
-                <Btn size="sm" variant="ghost" onClick={() => setActiveId(null)}>ปิด</Btn>
+                <Btn size="sm" variant="ghost" onClick={() => setActiveId(null)}>Close</Btn>
               </div>
             </div>
 
@@ -633,13 +713,13 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
                 </div>
                 {hasOffset && (
                   <p style={{ fontSize: 10, color: C.amber, textAlign: "center" }}>
-                    ปรับแล้ว ({off.x > 0 ? "+" : ""}{off.x}, {off.y > 0 ? "+" : ""}{off.y})
+                    Adjusted ({off.x > 0 ? "+" : ""}{off.x}, {off.y > 0 ? "+" : ""}{off.y})
                   </p>
                 )}
                 <div style={{ fontSize: 11, color: C.inkMd, lineHeight: 1.7, textAlign: "center" }}>
-                  <div>สถานะ: <b style={{ color: C.sage }}>{activeGlyph.confidence?.status || activeGlyph.status}</b></div>
+                  <div>Status: <b style={{ color: C.sage }}>{activeGlyph.confidence?.status || activeGlyph.status}</b></div>
                   {activeGlyph.confidence ? (
-                    <div>ความมั่นใจ: <b style={{ color: C.ink }}>{(activeGlyph.confidence.overall * 100).toFixed(1)}%</b></div>
+                    <div>Confidence: <b style={{ color: C.ink }}>{(activeGlyph.confidence.overall * 100).toFixed(1)}%</b></div>
                   ) : null}
                 </div>
               </div>
@@ -647,23 +727,23 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
               {/* Adjusters column */}
               <div style={{ flex: 1, padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
                 <p style={{ fontSize: 11, color: C.inkLt, margin: 0 }}>
-                  ปรับเฉพาะตัวนี้ ไม่กระทบตัวอื่น
+                  Adjust this glyph only — does not affect others
                 </p>
                 <Adjuster
-                  label="เลื่อนซ้าย / ขวา (X)"
+                  label="Shift Left / Right (X)"
                   value={off.x}
                   min={-80} max={80} step={1}
                   onChange={v => setOff("x", v)}
                 />
                 <Adjuster
-                  label="เลื่อนขึ้น / ลง (Y)"
+                  label="Shift Up / Down (Y)"
                   value={off.y}
                   min={-80} max={80} step={1}
                   onChange={v => setOff("y", v)}
                 />
                 {/* Arrow nudge buttons */}
                 <div>
-                  <p style={{ fontSize: 11, color: C.inkLt, marginBottom: 8 }}>กดเพื่อขยับทีละ 1px:</p>
+                  <p style={{ fontSize: 11, color: C.inkLt, marginBottom: 8 }}>Nudge by 1px:</p>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 40px)", gridTemplateRows: "repeat(3, 40px)", gap: 4 }}>
                     {[
                       { label: "↖", dx: -1, dy: -1 }, { label: "↑", dx: 0, dy: -1 }, { label: "↗", dx: 1, dy: -1 },
@@ -732,12 +812,12 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
                   <p style={{ fontSize: 15, fontWeight: 600, color: C.ink, margin: 0 }}>
                     {zoomGlyph.ch}
                     <span style={{ fontSize: 12, fontWeight: 400, color: C.inkLt, marginLeft: 10 }}>
-                      HG{String(zoomGlyph.index).padStart(3, "0")} • ลำดับช่อง {zoomGlyph.index}
+                      HG{String(zoomGlyph.index).padStart(3, "0")} • Cell #{zoomGlyph.index}
                     </span>
                   </p>
                   {hasOffset && (
                     <p style={{ fontSize: 11, color: C.amber, margin: "2px 0 0" }}>
-                      ✎ ปรับแล้ว X: {off.x > 0 ? "+" : ""}{off.x}, Y: {off.y > 0 ? "+" : ""}{off.y}
+                      ✎ Adjusted X: {off.x > 0 ? "+" : ""}{off.x}, Y: {off.y > 0 ? "+" : ""}{off.y}
                     </p>
                   )}
                 </div>
@@ -749,7 +829,7 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
                         setZoomGlyph(prev => ({ ...prev, preview: getAdjustedPreview(prev, 0, 0) }))
                       }}
                       style={{ border: `1px solid ${C.border}`, borderRadius: 8, background: C.bgMuted, padding: "5px 12px", fontSize: 12, cursor: "pointer", color: C.ink }}>
-                      รีเซ็ต
+                      Reset
                     </button>
                   )}
                   <button type="button" onClick={() => setZoomGlyph(null)}
@@ -775,18 +855,18 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
                 <div style={{ width: 260, padding: 18, borderLeft: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 16 }}>
                   <div>
                     <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: C.inkLt, margin: "0 0 12px" }}>
-                      ปรับตำแหน่ง
+                      Adjust position
                     </p>
-                    <p style={{ fontSize: 11, color: C.inkLt, margin: "0 0 14px" }}>ปรับเฉพาะตัวนี้ ไม่กระทบตัวอื่น</p>
+                    <p style={{ fontSize: 11, color: C.inkLt, margin: "0 0 14px" }}>Adjust this glyph only — does not affect others</p>
 
                     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                       <Adjuster
-                        label="← ซ้าย / ขวา →"
+                        label="← Left / Right →"
                         value={off.x} min={-100} max={100} step={1}
                         onChange={v => setOff("x", v)}
                       />
                       <Adjuster
-                        label="↑ ขึ้น / ลง ↓"
+                        label="↑ Up / Down ↓"
                         value={off.y} min={-100} max={100} step={1}
                         onChange={v => setOff("y", v)}
                       />
@@ -795,7 +875,7 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
 
                   {/* D-pad nudge */}
                   <div>
-                    <p style={{ fontSize: 11, color: C.inkLt, margin: "0 0 10px" }}>ขยับทีละ 1px:</p>
+                    <p style={{ fontSize: 11, color: C.inkLt, margin: "0 0 10px" }}>Nudge 1px:</p>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 44px)", gap: 5 }}>
                       {[
                         { label: "↖", dx: -1, dy: -1 }, { label: "↑", dx: 0, dy: -1 }, { label: "↗", dx: 1, dy: -1 },
@@ -821,9 +901,9 @@ export default function Step3({ parsedFile, onGlyphsUpdate = () => {} }) {
 
                   {/* Status info */}
                   <div style={{ marginTop: "auto", paddingTop: 12, borderTop: `1px solid ${C.border}`, fontSize: 11, color: C.inkMd, lineHeight: 1.8 }}>
-                    <div>สถานะ: <b style={{ color: C.ink }}>{zoomGlyph.confidence?.status || zoomGlyph.status}</b></div>
+                    <div>Status: <b style={{ color: C.ink }}>{zoomGlyph.confidence?.status || zoomGlyph.status}</b></div>
                     {zoomGlyph.confidence && (
-                      <div>ความมั่นใจ: <b style={{ color: C.ink }}>{(zoomGlyph.confidence.overall * 100).toFixed(1)}%</b></div>
+                      <div>Confidence: <b style={{ color: C.ink }}>{(zoomGlyph.confidence.overall * 100).toFixed(1)}%</b></div>
                     )}
                   </div>
                 </div>

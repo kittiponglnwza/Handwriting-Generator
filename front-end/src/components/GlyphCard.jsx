@@ -76,9 +76,9 @@ const GlyphCard = memo(({
           fontSize: 10, 
           cursor: "pointer" 
         }}
-        title="ลบช่องนี้"
+        title="Remove this glyph"
       >
-        ลบ
+        Remove
       </button>
 
       {/* Zoom button (image) */}
@@ -99,7 +99,7 @@ const GlyphCard = memo(({
           padding: 4, 
           cursor: "zoom-in" 
         }}
-        title="ดูภาพขยาย"
+        title="Zoom in"
       >
         <img 
           src={glyph.preview} 

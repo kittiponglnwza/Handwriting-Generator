@@ -20,14 +20,14 @@ export default function QADashboard({ glyphs, qaReport, onGlyphSelect, onRetryEx
 
   // Status configuration with colors and labels
   const statusConfig = {
-    excellent: { color: C.sage, bg: C.sageLt, label: 'ดีเยี่ยม', icon: '✓' },
-    good: { color: C.sage, bg: C.sageLt, label: 'ดี', icon: '✓' },
-    acceptable: { color: C.amber, bg: C.amberLt, label: 'พอใช้', icon: '⚠' },
-    poor: { color: C.amber, bg: C.amberLt, label: 'แย่', icon: '⚠' },
-    critical: { color: C.blush, bg: C.blushLt, label: 'วิกฤต', icon: '✗' },
+    excellent: { color: C.sage, bg: C.sageLt, label: 'Excellent', icon: '✓' },
+    good: { color: C.sage, bg: C.sageLt, label: 'Good', icon: '✓' },
+    acceptable: { color: C.amber, bg: C.amberLt, label: 'Acceptable', icon: '⚠' },
+    poor: { color: C.amber, bg: C.amberLt, label: 'Poor', icon: '⚠' },
+    critical: { color: C.blush, bg: C.blushLt, label: 'Critical', icon: '✗' },
     overflow: { color: C.blush, bg: C.blushLt, label: 'Overflow', icon: '⚠' },
-    missing: { color: C.inkMd, bg: C.bgMuted, label: 'หาย', icon: '—' },
-    error: { color: C.blush, bg: C.blushLt, label: 'ผิดพลาด', icon: '✗' }
+    missing: { color: C.inkMd, bg: C.bgMuted, label: 'Missing', icon: '—' },
+    error: { color: C.blush, bg: C.blushLt, label: 'Error', icon: '✗' }
   }
 
   // Calculate status percentages
@@ -53,7 +53,7 @@ export default function QADashboard({ glyphs, qaReport, onGlyphSelect, onRetryEx
         textAlign: 'center',
         color: C.inkLt
       }}>
-        <p>กำลังโหลดข้อมูล QA...</p>
+        <p>Loading data QA...</p>
       </div>
     )
   }
@@ -63,7 +63,7 @@ export default function QADashboard({ glyphs, qaReport, onGlyphSelect, onRetryEx
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: C.ink }}>
-          แดชบอร์ดคุณภาพการดึงตัวอักษร
+          Glyph Extraction QA Dashboard
         </h3>
         <div style={{ display: 'flex', gap: 8 }}>
           <button
@@ -78,7 +78,7 @@ export default function QADashboard({ glyphs, qaReport, onGlyphSelect, onRetryEx
               cursor: 'pointer'
             }}
           >
-            {showDetails ? 'ซ่อนรายละเอียด' : 'แสดงรายละเอียด'}
+            {showDetails ? 'Hide details' : 'Show details'}
           </button>
           {onRetryExtraction && (
             <button
@@ -93,7 +93,7 @@ export default function QADashboard({ glyphs, qaReport, onGlyphSelect, onRetryEx
                 cursor: 'pointer'
               }}
             >
-              ดึงใหม่
+              Re-extract
             </button>
           )}
         </div>
@@ -141,21 +141,21 @@ export default function QADashboard({ glyphs, qaReport, onGlyphSelect, onRetryEx
       {/* Quality Metrics */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 20 }}>
         <div style={{ background: C.bgMuted, borderRadius: 8, padding: 12 }}>
-          <div style={{ fontSize: 12, color: C.inkLt, marginBottom: 4 }}>ความมั่นใจเฉลี่ย</div>
+          <div style={{ fontSize: 12, color: C.inkLt, marginBottom: 4 }}>Avg confidence</div>
           <div style={{ fontSize: 24, fontWeight: 600, color: C.ink }}>
             {(qaReport.averageConfidence * 100).toFixed(1)}%
           </div>
         </div>
         
         <div style={{ background: C.bgMuted, borderRadius: 8, padding: 12 }}>
-          <div style={{ fontSize: 12, color: C.inkLt, marginBottom: 4 }}>จำนวนทั้งหมด</div>
+          <div style={{ fontSize: 12, color: C.inkLt, marginBottom: 4 }}>Total</div>
           <div style={{ fontSize: 24, fontWeight: 600, color: C.ink }}>
             {qaReport.total}
           </div>
         </div>
         
         <div style={{ background: C.bgMuted, borderRadius: 8, padding: 12 }}>
-          <div style={{ fontSize: 12, color: C.inkLt, marginBottom: 4 }}>ดี / ดีเยี่ยม</div>
+          <div style={{ fontSize: 12, color: C.inkLt, marginBottom: 4 }}>Good / Excellent</div>
           <div style={{ fontSize: 24, fontWeight: 600, color: C.sage }}>
             {qaReport.total > 0
               ? Math.round(((qaReport.excellent + qaReport.good) / qaReport.total) * 100)
@@ -168,7 +168,7 @@ export default function QADashboard({ glyphs, qaReport, onGlyphSelect, onRetryEx
       {qaReport.recommendations && qaReport.recommendations.length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <h4 style={{ margin: '0 0 8px 0', fontSize: 14, fontWeight: 600, color: C.ink }}>
-            คำแนะนำ
+            Recommendations
           </h4>
           <ul style={{ margin: 0, paddingLeft: 20, color: C.inkMd }}>
             {qaReport.recommendations.map((rec, index) => (
@@ -182,7 +182,7 @@ export default function QADashboard({ glyphs, qaReport, onGlyphSelect, onRetryEx
 
       {/* Filter Controls */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-        <span style={{ fontSize: 12, color: C.inkLt }}>กรอง:</span>
+        <span style={{ fontSize: 12, color: C.inkLt }}>Filter:</span>
         <button
           onClick={() => setSelectedStatus('all')}
           style={{
@@ -195,7 +195,7 @@ export default function QADashboard({ glyphs, qaReport, onGlyphSelect, onRetryEx
             cursor: 'pointer'
           }}
         >
-          ทั้งหมด ({qaReport.total})
+          All ({qaReport.total})
         </button>
         {Object.entries(statusConfig).map(([status, config]) => {
           const count = qaReport[status] || 0
@@ -315,7 +315,7 @@ export default function QADashboard({ glyphs, qaReport, onGlyphSelect, onRetryEx
       {qaReport.issues && qaReport.issues.length > 0 && showDetails && (
         <div style={{ marginTop: 16 }}>
           <h4 style={{ margin: '0 0 8px 0', fontSize: 14, fontWeight: 600, color: C.ink }}>
-            ปัญหาที่ต้องแก้ ({qaReport.issues.length})
+            Issues to fix ({qaReport.issues.length})
           </h4>
           <div style={{ 
             maxHeight: 200, 
@@ -357,7 +357,7 @@ export default function QADashboard({ glyphs, qaReport, onGlyphSelect, onRetryEx
                     {issue.issue}
                   </div>
                   <div style={{ color: C.inkLt, fontSize: 11 }}>
-                    ความมั่นใจ: {(issue.confidence * 100).toFixed(1)}%
+                    Confidence: {(issue.confidence * 100).toFixed(1)}%
                   </div>
                   {issue.feedback && issue.feedback.length > 0 && (
                     <div style={{ color: C.amber, fontSize: 10, marginTop: 2 }}>

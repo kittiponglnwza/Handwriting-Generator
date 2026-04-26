@@ -56,12 +56,12 @@ const CHAR_PREVIEW_LIMIT  = 24
 
 // ─── File validation ──────────────────────────────────────────────────────────
 function validatePdf(file) {
-  if (!file) return "ไม่พบไฟล์ที่อัปโหลด"
+  if (!file) return "No file found"
   const name = (file.name ?? "").toLowerCase()
   if (!name.endsWith(".pdf") && file.type !== "application/pdf")
-    return "รองรับเฉพาะไฟล์ PDF (.pdf) เท่านั้น"
+    return "Only PDF files (.pdf) are supported"
   if (file.size > MAX_FILE_SIZE_BYTES)
-    return "ไฟล์มีขนาดเกิน 10 MB กรุณาลดขนาดก่อนอัปโหลด"
+    return "File exceeds 10 MB — please reduce the size before uploading"
   return ""
 }
 
@@ -206,15 +206,15 @@ async function parsePdf(file) {
   } catch (err) {
     // Handle specific PDF error types with Thai-friendly messages
     if (err?.name === 'InvalidPDFException' || err?.message?.includes('Invalid PDF')) {
-      throw new Error('ไฟล์ PDF เสียหายหรือไม่ถูกต้อง กรุณาลอง export PDF ใหม่อีกครั้ง')
+      throw new Error('PDF file is corrupted or invalid — please re-export the PDF')
     }
     if (err?.name === 'MissingPDFException') {
-      throw new Error('ไม่พบไฟล์ PDF กรุณาลองอัปโหลดใหม่')
+      throw new Error('PDF file not found — please try uploading again')
     }
     if (err?.name === 'PasswordException') {
-      throw new Error('ไฟล์ PDF มีรหัสผ่าน กรุณาถอดรหัสก่อนอัปโหลด')
+      throw new Error('PDF is password-protected — please unlock it before uploading')
     }
-    throw new Error('ไม่สามารถอ่าน PDF ได้: ' + (err?.message ?? 'unknown error'))
+    throw new Error('Could not read PDF: ' + (err?.message ?? 'unknown error'))
   }
 
   // Dummy try block reopened for page-level processing
@@ -229,7 +229,7 @@ async function parsePdf(file) {
       canvas.width   = Math.floor(viewport.width)
       canvas.height  = Math.floor(viewport.height)
       const ctx = canvas.getContext("2d", { willReadFrequently: true })
-      if (!ctx) throw new Error("ไม่สามารถสร้าง canvas context ได้")
+      if (!ctx) throw new Error("Failed to create canvas context")
 
       ctx.fillStyle = "#ffffff"
       ctx.fillRect(0, 0, canvas.width, canvas.height)
@@ -331,7 +331,7 @@ function formatFileSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
 }
 function formatDate(ts) {
-  return ts ? new Date(ts).toLocaleString("th-TH") : "—"
+  return ts ? new Date(ts).toLocaleString("en-GB") : "—"
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -412,13 +412,13 @@ function CharacterPreview({ characters }) {
               borderRadius:7, fontSize:11, color:C.inkMd, cursor:"pointer",
             }}
           >
-            แสดงน้อยลง
+            Show less
           </button>
         )}
       </div>
 
       <p style={{ fontSize:11, color:C.inkLt, marginTop:6 }}>
-        {characters.length} ตัวอักษร • read-only preview
+        {characters.length} characters • read-only preview
       </p>
     </div>
   )
@@ -444,7 +444,7 @@ function DetectionStatus({ parsedFile }) {
           ✅ Detected {characters.length} characters from QR
         </p>
         <p style={{ fontSize:11, color:C.inkMd }}>
-          ดึงตัวอักษรอัตโนมัติจาก QR code — พร้อมสำหรับขั้นตอนถัดไป
+          Characters automatically extracted from QR code — ready for the next step
         </p>
         <CharacterPreview characters={characters} />
       </div>
@@ -462,7 +462,7 @@ function DetectionStatus({ parsedFile }) {
           ✅ Using {characters.length} manually entered characters
         </p>
         <p style={{ fontSize:11, color:C.inkMd }}>
-          ระบุโดยผู้ใช้ — แก้ไขได้ในช่องด้านล่าง
+          Entered manually — edit below if needed
         </p>
         <CharacterPreview characters={characters} />
       </div>
@@ -477,11 +477,11 @@ function DetectionStatus({ parsedFile }) {
         borderRadius:12, padding:"14px 16px", marginBottom:20,
       }}>
         <p style={{ fontSize:13, fontWeight:600, color:C.amber, marginBottom:2 }}>
-          ⚠️ พบ {metadata.detectedSlots} ช่อง แต่ไม่มีข้อมูลตัวอักษร
+          ⚠️ Found {metadata.detectedSlots} slots — no character data
         </p>
         <p style={{ fontSize:11, color:C.inkMd }}>
-          QR อ่านได้แต่ไม่มี character payload (เกิดเมื่อเลือกตัวอักษรเยอะเกินไปใน Step 1)
-          — กรุณาระบุตัวอักษรด้านล่างให้ครบ {metadata.detectedSlots} ตัว
+          QR decoded but no character payload (happens when too many characters were selected in Step 1)
+          — please enter {metadata.detectedSlots} characters below
         </p>
       </div>
     )
@@ -495,11 +495,11 @@ function DetectionStatus({ parsedFile }) {
         borderRadius:12, padding:"14px 16px", marginBottom:20,
       }}>
         <p style={{ fontSize:13, fontWeight:600, color:C.amber, marginBottom:2 }}>
-          ⚠️ พบ {metadata.detectedSlots} ช่อง แต่ไม่มีข้อมูลตัวอักษร
+          ⚠️ Found {metadata.detectedSlots} slots — no character data
         </p>
         <p style={{ fontSize:11, color:C.inkMd }}>
-          QR อ่านได้แต่ไม่มี character payload (เกิดเมื่อเลือกตัวอักษรเยอะเกินไปใน Step 1)
-          — กรุณาระบุตัวอักษรด้านล่างให้ครบ {metadata.detectedSlots} ตัว
+          QR decoded but no character payload (happens when too many characters were selected in Step 1)
+          — please enter {metadata.detectedSlots} characters below
         </p>
       </div>
     )
@@ -515,7 +515,7 @@ function DetectionStatus({ parsedFile }) {
         ⚠️ No characters detected
       </p>
       <p style={{ fontSize:11, color:C.inkMd }}>
-        ไม่พบ QR / HG code / เลขลำดับในไฟล์นี้ — ระบุตัวอักษรด้านล่าง (ไม่บังคับ)
+        No QR / HG code / index found in this file — enter characters below (optional)
       </p>
     </div>
   )
@@ -556,17 +556,17 @@ function ManualCharInput({ parsedFile, onParsed }) {
       borderRadius:14, padding:"16px 18px",
     }}>
       <p style={{ fontSize:13, fontWeight:500, color:C.ink, marginBottom:4 }}>
-        ระบุตัวอักษรสำหรับไฟล์นี้{" "}
-        <span style={{ fontSize:11, color:C.inkLt, fontWeight:400 }}>(ไม่บังคับ)</span>
+        Enter characters for this file{" "}
+        <span style={{ fontSize:11, color:C.inkLt, fontWeight:400 }}>(optional)</span>
       </p>
       <p style={{ fontSize:12, color:C.inkMd, marginBottom:10 }}>
-        คั่นด้วยช่องว่างหรือจุลภาค เช่น: ก,ข,ค หรือ A B C D
+        Separate by space or comma — e.g. A,B,C or A B C D
       </p>
       <textarea
         value={manualChars}
         onChange={e => setManualChars(e.target.value)}
         rows={3}
-        placeholder="ก ข ค ง จ ..."
+        placeholder="A B C D E ..."
         style={{
           width:"100%", border:`1px solid ${C.border}`, borderRadius:8,
           padding:"8px 10px", fontSize:14,
@@ -577,7 +577,7 @@ function ManualCharInput({ parsedFile, onParsed }) {
       <div style={{ display:"flex", justifyContent:"flex-end", alignItems:"center", gap:10, marginTop:8 }}>
         {manualChars.trim() && (
           <span style={{ fontSize:11, color:C.inkLt }}>
-            {previewCount} ตัว (ไม่ซ้ำ)
+            {previewCount} unique characters
           </span>
         )}
         <Btn
@@ -586,7 +586,7 @@ function ManualCharInput({ parsedFile, onParsed }) {
           size="sm"
           disabled={!manualChars.trim()}
         >
-          ใช้ตัวอักษรเหล่านี้ →
+          Use these characters →
         </Btn>
       </div>
     </div>
@@ -616,11 +616,11 @@ export default function Step2({ parsedFile, onParsed, onClear }) {
 
     setError("")
     setParsing(true)
-    setProgress("กำลังเปิดไฟล์ PDF...")
+    setProgress("Opening PDF file…")
     cancelRef.current = false
 
     try {
-      setProgress("กำลังอ่านและวิเคราะห์ทุกหน้า + QR + Grid...")
+      setProgress("Reading and analysing all pages + QR + grid…")
       const result = await parsePdf(file)
       if (cancelRef.current) return
       setProgress("")
@@ -629,7 +629,7 @@ export default function Step2({ parsedFile, onParsed, onClear }) {
       onParsed(result)
     } catch (err) {
       if (cancelRef.current) return
-      setError(err?.message ?? "อ่านไฟล์ PDF ไม่สำเร็จ")
+      setError(err?.message ?? "Failed to read PDF")
       setProgress("")
     } finally {
       if (!cancelRef.current) setParsing(false)
@@ -652,10 +652,10 @@ export default function Step2({ parsedFile, onParsed, onClear }) {
     return (
       <div className="fade-up" style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"60px 0", gap:16 }}>
         <div className="spinner" />
-        <p style={{ fontSize:13, color:C.inkMd }}>{progress || "กำลังวิเคราะห์..."}</p>
-        <p style={{ fontSize:11, color:C.inkLt }}>อ่าน QR • สแกน anchor • ตรวจ reg-dots ทุกหน้า</p>
+        <p style={{ fontSize:13, color:C.inkMd }}>{progress || "Analysing…"}</p>
+        <p style={{ fontSize:11, color:C.inkLt }}>Reading QR · scanning anchors · detecting reg-dots per page</p>
         <Btn onClick={() => { cancelRef.current = true; setParsing(false); setProgress("") }} variant="ghost" size="sm">
-          ยกเลิก
+          Cancel
         </Btn>
       </div>
     )
@@ -666,7 +666,7 @@ export default function Step2({ parsedFile, onParsed, onClear }) {
     return (
       <div className="fade-up">
         <InfoBox>
-          รองรับไฟล์ PDF เท่านั้น • ตัวอักษรจะถูกดึงจาก QR code อัตโนมัติเมื่ออัปโหลด
+          PDF files only • Characters are automatically extracted from the QR code on upload
         </InfoBox>
         {error && <InfoBox color="amber">{error}</InfoBox>}
 
@@ -691,10 +691,10 @@ export default function Step2({ parsedFile, onParsed, onClear }) {
         >
           <div style={{ width:52, height:52, borderRadius:"50%", background:C.bgMuted, border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 16px", color:C.inkMd, fontSize:20 }}>↑</div>
           <p style={{ fontSize:14, fontWeight:500, color:C.ink, marginBottom:6 }}>
-            วางไฟล์ PDF ที่นี่ หรือคลิกเพื่อเลือกไฟล์
+            Drop PDF here or click to choose a file
           </p>
           <p style={{ fontSize:12, color:C.inkLt }}>
-            ตัวอักษรจะถูกดึงจาก QR อัตโนมัติ • รองรับสูงสุด 10 MB
+            Characters extracted from QR automatically · max 10 MB
           </p>
         </div>
       </div>
@@ -727,15 +727,15 @@ export default function Step2({ parsedFile, onParsed, onClear }) {
             {parsedFile.file.name}
           </p>
           <p style={{ fontSize:11, color:C.inkLt, marginTop:2 }}>
-            PDF • {formatFileSize(parsedFile.file.size)} • {parsedFile.metadata.pages} หน้า
+            PDF • {formatFileSize(parsedFile.file.size)} • {parsedFile.metadata.pages} pages
           </p>
         </div>
-        <Tag color="sage">อัปโหลดแล้ว</Tag>
+        <Tag color="sage">Uploaded</Tag>
       </div>
 
       <div style={{ display:"flex", justifyContent:"flex-end", gap:8, marginBottom:20 }}>
-        <Btn onClick={() => fileInputRef.current?.click()} variant="ghost" size="sm">เปลี่ยนไฟล์</Btn>
-        <Btn onClick={onClear} variant="ghost" size="sm">ลบไฟล์</Btn>
+        <Btn onClick={() => fileInputRef.current?.click()} variant="ghost" size="sm">Change file</Btn>
+        <Btn onClick={onClear} variant="ghost" size="sm">Remove file</Btn>
       </div>
 
       {/* Parse result table */}

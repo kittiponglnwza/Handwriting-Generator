@@ -31,13 +31,13 @@ const SPECIAL_CHARS = [
 ]
 
 const GROUPS = [
-  { label: "พยัญชนะไทย", chars: THAI_CONSONANTS },
-  { label: "สระไทย",     chars: THAI_VOWELS },
-  { label: "วรรณยุกต์",  chars: THAI_TONE_MARKS },
-  { label: "ตัวเลข",     chars: DIGITS },
+  { label: "Thai Consonants", chars: THAI_CONSONANTS },
+  { label: "Thai Vowels",     chars: THAI_VOWELS },
+  { label: "Tone Marks",      chars: THAI_TONE_MARKS },
+  { label: "Digits",          chars: DIGITS },
   { label: "English A-Z", chars: ENG_UPPER },
   { label: "English a-z", chars: ENG_LOWER },
-  { label: "อักขระพิเศษ", chars: SPECIAL_CHARS },
+  { label: "Special Chars",   chars: SPECIAL_CHARS },
 ]
 
 const ALL_CHARS = GROUPS.flatMap(g => g.chars)
@@ -176,8 +176,8 @@ async function generateTemplatePdfByGroup(selectedSet, groups) {
         const header = `
           <div class="header">
             <h1 class="title">Handwriting Generator — ${escapeHtml(group.label)}</h1>
-            <p class="meta">กลุ่ม: ${escapeHtml(group.label)} • ${chars.length} ตัว • หน้า ${pageIndex+1}/${pageCount} • ช่อง ${cellFrom}–${cellTo}</p>
-            <p class="meta">Cell code: HGxxx (ใช้ยึดตำแหน่งตอนอัปโหลดกลับใน Step 3)</p>
+            <p class="meta">Group: ${escapeHtml(group.label)} • ${chars.length} characters • Page ${pageIndex+1}/${pageCount} • Cells ${cellFrom}–${cellTo}</p>
+            <p class="meta">Cell code: HGxxx (used for position anchoring when uploading in Step 3)</p>
             ${qrImg}
           </div>`
 
@@ -222,7 +222,7 @@ async function generateTemplatePdfByGroup(selectedSet, groups) {
   const blob = new Blob([html], { type: "text/html;charset=utf-8" })
   const url = URL.createObjectURL(blob)
   const win = window.open(url, "_blank")
-  if (!win) { window.alert("ไม่สามารถเปิดหน้าต่างพิมพ์ได้ กรุณาอนุญาต pop-up ก่อน"); return }
+  if (!win) { window.alert("Could not open print window — please allow pop-ups and try again."); return }
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
@@ -277,7 +277,7 @@ async function generateTemplatePdf(chars) {
         <div class="header">
           <h1 class="title">Handwriting Generator Template</h1>
           <p class="meta">Total glyphs: ${chars.length} • Page ${pageIndex+1}/${pageCount} • Cells ${cellFrom}–${cellTo} (${pageCellCount} cells)</p>
-          <p class="meta">Cell code format: HGxxx (ใช้ยึดตำแหน่งตอนอัปโหลดกลับใน Step 3)</p>
+          <p class="meta">Cell code format: HGxxx (used for position anchoring when uploading in Step 3)</p>
           ${qrImg}
         </div>`
 
@@ -320,7 +320,7 @@ async function generateTemplatePdf(chars) {
   const blob = new Blob([html], { type: "text/html;charset=utf-8" })
   const url = URL.createObjectURL(blob)
   const win = window.open(url, "_blank")
-  if (!win) { window.alert("ไม่สามารถเปิดหน้าต่างพิมพ์ได้ กรุณาอนุญาต pop-up ก่อน"); return }
+  if (!win) { window.alert("Could not open print window — please allow pop-ups and try again."); return }
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
@@ -369,45 +369,45 @@ export default function Step1() {
   return (
     <div className="fade-up">
       <InfoBox color="amber">
-        Step นี้เป็นตัวเลือกเสริมสำหรับสร้าง Template ใหม่เท่านั้น
-        ถ้าใช้ไฟล์จากภายนอก สามารถไป Step 2 ได้เลย
+        This step is optional — use it to generate a new handwriting template.
+        If you already have a PDF, go to Step 2 directly.
       </InfoBox>
 
       {generated && (
         <InfoBox color="sage">
-          ✅ Template ถูกส่งไปพิมพ์แล้ว — กรอกลายมือลงในแต่ละช่อง แล้ว scan รวมเป็นไฟล์เดียว
-          อัปโหลดกลับใน Step 2 ได้เลย (ถ้าใช้ปุ่ม ⭐ แต่ละกลุ่มมี QR แยก อ่านได้แม้รวมไฟล์)
+          ✅ Template sent to print — fill in each cell with your handwriting, scan as one file,
+          then upload in Step 2. (⭐ button: each group has its own QR, works even when merged)
         </InfoBox>
       )}
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
         <p style={{ fontSize: 12, color: "#9E9278" }}>
-          {selectedCount > 0 ? `เลือกแล้ว ${selectedCount} ตัว` : "ยังไม่ได้เลือก"}
+          {selectedCount > 0 ? `Selected ${selectedCount} characters` : "None selected"}
         </p>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <Btn onClick={() => selectAll(ALL_CHARS)} variant="sage" size="sm" disabled={allSelected}>
-            เลือกทั้งหมด
+            Select All
           </Btn>
           <Btn onClick={clearAll} variant="ghost" size="sm" disabled={selectedCount === 0}>
-            ล้างทั้งหมด
+            Clear All
           </Btn>
           <Btn
             onClick={handleGenerateByGroup}
             variant="primary"
             size="sm"
             disabled={selected.size === 0 || generating}
-            title="แนะนำ: แต่ละกลุ่มมี QR แยก อัปโหลดรวมไฟล์เดียวได้เลย"
+            title="Recommended: each group has its own QR — merge files freely"
           >
-            {generating ? "กำลังสร้าง..." : "⭐ พิมพ์แยกกลุ่ม (แนะนำ)"}
+            {generating ? "Generating…" : "⭐ Print by Group (recommended)"}
           </Btn>
           <Btn
             onClick={handleGenerate}
             variant="ghost"
             size="sm"
             disabled={selected.size === 0 || generating}
-            title="พิมพ์รวมทุกตัวในชุดเดียว — ถ้าจะ scan รวมไฟล์ ให้ใช้ปุ่มซ้ายแทน"
+            title="Print all characters in one batch — use the left button if merging scans"
           >
-            พิมพ์รวมทั้งหมด
+            Print All Together
           </Btn>
         </div>
       </div>

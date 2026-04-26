@@ -2,7 +2,7 @@
  * ErrorBoundary.jsx — Global crash protection for Step components
  *
  * Wraps each Step to prevent white-screen crashes.
- * Phase 2 TODO: ส่ง error log ไป PostHog / Sentry
+ * Phase 2 TODO: send error log to PostHog / Sentry
  */
 import { Component } from "react"
 
@@ -57,7 +57,7 @@ export default class ErrorBoundary extends Component {
           </div>
 
           <p style={{ fontSize: 16, fontWeight: 600, color: "#2C2416", marginBottom: 8 }}>
-            เกิดข้อผิดพลาด
+            An error occurred
           </p>
 
           <p style={{ fontSize: 13, color: "#888", marginBottom: 6, maxWidth: 360 }}>
@@ -65,7 +65,7 @@ export default class ErrorBoundary extends Component {
           </p>
 
           <p style={{ fontSize: 11, color: "#aaa", marginBottom: 24, maxWidth: 400 }}>
-            กรุณาลองอัปโหลด PDF ใหม่ หรือกลับไปขั้นตอนก่อนหน้า
+            Please try uploading PDF again or go back to the previous step
           </p>
 
           <button
@@ -81,7 +81,7 @@ export default class ErrorBoundary extends Component {
               cursor: "pointer",
             }}
           >
-            ลองใหม่
+            tryagain
           </button>
 
           {/* Dev detail — only in development */}

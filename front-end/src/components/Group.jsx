@@ -44,10 +44,10 @@ export default function Group({
           size="sm"
           disabled={allSelected}
         >
-          เลือกทั้งหมวด
+          Select group
         </Btn>
         <Btn onClick={() => onSelectOnlyGroup(chars)} variant="primary" size="sm">
-          เฉพาะหมวดนี้
+          Only this group
         </Btn>
         <Btn
           onClick={() => onClearGroup(chars)}
@@ -55,7 +55,7 @@ export default function Group({
           size="sm"
           disabled={!hasAnySelected}
         >
-          ล้างหมวด
+          Clear group
         </Btn>
       </div>
       <div
