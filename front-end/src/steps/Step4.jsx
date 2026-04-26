@@ -209,97 +209,122 @@ function SkippedGlyphsPanel({ skipped }) {
 
 /** Live font preview textarea */
 function FontPreviewPane({ fontName, ttfBuffer }) {
-  const [previewText, setPreviewText] = useState(
-    'กขคงจฉชซญดตถทธนบปผฝพฟภมยรลวศษสหอฮ\nThe quick brown fox jumps over the lazy dog.\nABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz\n0123456789 !@#$%^&*()-+=\nสวัสดี ภาษาไทย ทดสอบระบบ ฟอนต์ลายมือ'
-  )
-  const [fontSize, setFontSize] = useState(32)
+const [previewText, setPreviewText] = useState(
+`\nMy name is Krittipong. I am a Computer Science student at King Mongkut's University of Technology North Bangkok. I enjoy coding, building projects, and learning new technologies. I have experience in robotics competitions and won several awards. My goal is to improve my programming skills and create successful projects in the future. I am hardworking, creative, and always ready to learn something new.
+
+ABCDEFGHIJKLMNOPQRSTUVWXYZ
+abcdefghijklmnopqrstuvwxyz
+
+0123456789
+!@#$%^&*()-+=
+
+This is TopZ's project
+
+ตอนนี้ยังไม่มีภาษาไทย`
+)
+  const [fontSize, setFontSize] = useState(42)
   const [fontLoaded, setFontLoaded] = useState(false)
+  const [bgMode, setBgMode] = useState('white') // white | ruled | dark
   const fontStyleId = `font-preview-${fontName.replace(/\s+/g, '-')}`
   const fontFamily  = `'${fontName}-Preview'`
 
   useEffect(() => {
     if (!ttfBuffer) { setFontLoaded(false); return }
-
     const existing = document.getElementById(fontStyleId)
     if (existing) existing.remove()
-
     const blob  = new Blob([ttfBuffer], { type: 'font/ttf' })
     const url   = URL.createObjectURL(blob)
     const style = document.createElement('style')
     style.id    = fontStyleId
     style.textContent = `@font-face { font-family: '${fontName}-Preview'; src: url('${url}') format('truetype'); font-display: block; }`
     document.head.appendChild(style)
-
-    // ใช้ FontFace API เพื่อรอให้ font โหลดจริงๆ แล้วค่อย set loaded
     if (typeof FontFace !== 'undefined') {
       const ff = new FontFace(`${fontName}-Preview`, `url('${url}')`, { display: 'block' })
-      ff.load().then(() => {
-        document.fonts.add(ff)
-        setFontLoaded(true)
-      }).catch(() => {
-        // fallback: แค่ set loaded หลัง delay สั้นๆ
-        setTimeout(() => setFontLoaded(true), 300)
-      })
+      ff.load().then(() => { document.fonts.add(ff); setFontLoaded(true) })
+        .catch(() => setTimeout(() => setFontLoaded(true), 300))
     } else {
       setTimeout(() => setFontLoaded(true), 300)
     }
-
-    return () => {
-      style.remove()
-      URL.revokeObjectURL(url)
-      setFontLoaded(false)
-    }
+    return () => { style.remove(); URL.revokeObjectURL(url); setFontLoaded(false) }
   }, [ttfBuffer, fontName])
+
+  const bgStyles = {
+    white: { background: '#FEFCF8', color: '#1A1410' },
+    ruled: {
+      background: '#FEFCF8',
+      backgroundImage: `repeating-linear-gradient(transparent, transparent ${fontSize * 1.6 - 1}px, #C8D8E8 ${fontSize * 1.6 - 1}px, #C8D8E8 ${fontSize * 1.6}px)`,
+      backgroundPositionY: '14px',
+      color: '#1A1410',
+    },
+    dark:  { background: '#1A1410', color: '#F0EBE0' },
+  }
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
-        <p style={{ fontSize: 11, fontWeight: 500, color: C.inkLt, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-          Live Font Preview
-        </p>
-        {ttfBuffer && (
-          <span style={{
-            fontSize: 10, padding: '2px 8px', borderRadius: 4,
-            background: fontLoaded ? '#EBF5EE' : C.amberLt,
-            color: fontLoaded ? '#2E6B3E' : C.amber,
-            border: `1px solid ${fontLoaded ? '#A8D5B5' : C.amberMd}`,
-          }}>
-            {fontLoaded ? '✓ Font loaded' : '⟳ Loading font…'}
-          </span>
-        )}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
-          <span style={{ fontSize: 11, color: C.inkLt }}>Size:</span>
+      {/* ── Toolbar ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+        {/* Status badge */}
+        <span style={{
+          fontSize: 11, padding: '3px 10px', borderRadius: 6,
+          background: fontLoaded ? '#EBF5EE' : C.amberLt,
+          color: fontLoaded ? '#2E6B3E' : C.amber,
+          border: `1px solid ${fontLoaded ? '#A8D5B5' : C.amberMd}`,
+          fontWeight: 500,
+        }}>
+          {fontLoaded ? '✓ Font loaded' : '⟳ Loading…'}
+        </span>
+
+        {/* BG mode toggle */}
+        <div style={{ display: 'flex', background: '#F2EDE4', borderRadius: 8, padding: 3, gap: 2 }}>
+          {[['white','☀'],  ['dark','🌙']].map(([m, icon]) => (
+            <button key={m} onClick={() => setBgMode(m)} style={{
+              background: bgMode === m ? '#fff' : 'transparent',
+              border: bgMode === m ? '1px solid #DDD8CE' : '1px solid transparent',
+              borderRadius: 6, padding: '3px 10px', cursor: 'pointer',
+              fontSize: 12, transition: 'all 0.15s',
+              boxShadow: bgMode === m ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+            }}>{icon}</button>
+          ))}
+        </div>
+
+        {/* Size slider */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto', background: '#F2EDE4', borderRadius: 8, padding: '5px 12px' }}>
+          <span style={{ fontSize: 11, color: '#8A7B62', fontWeight: 500 }}>Size</span>
           <input
-            type="range" min={14} max={80} value={fontSize}
+            type="range" min={16} max={120} value={fontSize}
             onChange={e => setFontSize(Number(e.target.value))}
-            style={{ width: 80 }}
+            style={{ width: 120, accentColor: '#2C2416' }}
           />
-          <span style={{ fontSize: 11, color: C.inkMd, fontFamily: 'monospace' }}>{fontSize}px</span>
+          <span style={{ fontSize: 12, color: '#1A1410', fontWeight: 700, fontVariantNumeric: 'tabular-nums', minWidth: 38, textAlign: 'right' }}>{fontSize}px</span>
         </div>
       </div>
+
+      {/* ── Preview area ── */}
       <textarea
         value={previewText}
         onChange={e => setPreviewText(e.target.value)}
         style={{
           width: '100%', boxSizing: 'border-box',
-          minHeight: 180, resize: 'vertical',
+          minHeight: 420, resize: 'vertical',
           fontFamily: fontLoaded ? `${fontFamily}, cursive` : 'cursive',
           fontSize,
           lineHeight: 1.6,
-          padding: '14px 16px',
-          border: `1px solid ${fontLoaded ? C.sageMd : C.border}`,
-          borderRadius: 10,
-          background: '#FEFCF8',
-          color: C.ink,
+          padding: '20px 24px',
+          border: `1.5px solid ${fontLoaded ? '#A8D5B5' : '#DDD8CE'}`,
+          borderRadius: 12,
+          ...bgStyles[bgMode],
           outline: 'none',
-          transition: 'border-color 0.2s',
+          transition: 'border-color 0.2s, background 0.2s',
+          boxShadow: '0 2px 12px rgba(44,36,22,0.06)',
         }}
         placeholder="Type here to preview the font…"
         spellCheck={false}
       />
+
       {!ttfBuffer && (
-        <p style={{ fontSize: 10, color: C.inkLt, marginTop: 6 }}>
-          ⚠ Waiting for font build to finish (auto-building…)
+        <p style={{ fontSize: 11, color: C.inkLt, marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⟳</span>
+          Auto-building font…
         </p>
       )}
     </div>
@@ -918,7 +943,7 @@ export default function Step4({ glyphs = [], fontStyle, onFontStyleChange, onFon
 
       {/* ════════════ Tab: Preview ════════════ */}
       {/* always mounted เพื่อป้องกัน @font-face หาย เมื่อ switch tab */}
-      <div style={{ display: activeTab === 'preview' ? 'block' : 'none', background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px', marginBottom: 20 }}>
+      <div style={{ display: activeTab === 'preview' ? 'block' : 'none', background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 14, padding: '24px 28px', marginBottom: 20 }}>
         <FontPreviewPane fontName={fontName} ttfBuffer={buildResult?.ttfBuffer ?? null} />
       </div>
 
