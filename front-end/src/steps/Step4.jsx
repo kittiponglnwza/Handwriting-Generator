@@ -379,28 +379,62 @@ const FONT_SLIDERS = [
 function FontStylePanel({ fontStyle, onFontStyleChange }) {
   if (!fontStyle || !onFontStyleChange) return null
   return (
-    <div style={{ background: "#F7F5F0", borderRadius: 12, padding: "16px 18px", marginBottom: 20, border: "1px solid #E5E0D5" }}>
-      <p style={{ fontSize: 12, fontWeight: 600, color: "#2C2416", marginBottom: 14, letterSpacing: "0.04em" }}>
-        FONT STYLE
+    <div style={{
+      background: '#fff',
+      borderRadius: 14,
+      padding: '20px 24px',
+      marginBottom: 0,
+      border: '1px solid #DDD8CE',
+      boxShadow: '0 1px 4px rgba(44,36,22,0.07)',
+    }}>
+      <p style={{
+        fontSize: 11, fontWeight: 600, color: '#8A7B62',
+        marginBottom: 18, letterSpacing: '0.1em', textTransform: 'uppercase',
+      }}>
+        Font Style
       </p>
-      {FONT_SLIDERS.map(({ key, label, min, max, unit }) => (
-        <div key={key} style={{ marginBottom: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-            <label style={{ fontSize: 11, color: "#6B5E45", fontWeight: 500 }}>{label}</label>
-            <span style={{ fontSize: 11, color: "#2C2416", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
-              {fontStyle[key]}{unit}
-            </span>
-          </div>
-          <input
-            type="range"
-            min={min}
-            max={max}
-            value={fontStyle[key]}
-            onChange={e => onFontStyleChange(key, Number(e.target.value))}
-            style={{ width: "100%", accentColor: "#2C2416", height: 4, cursor: "pointer" }}
-          />
-        </div>
-      ))}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 32px' }}>
+        {FONT_SLIDERS.map(({ key, label, min, max, unit }) => {
+          const pct = ((fontStyle[key] - min) / (max - min)) * 100
+          return (
+            <div key={key} style={{ paddingBottom: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+                <label style={{ fontSize: 12, color: '#5C5040', fontWeight: 500 }}>{label}</label>
+                <span style={{
+                  fontSize: 12, color: '#1A1410', fontWeight: 700,
+                  fontVariantNumeric: 'tabular-nums',
+                  background: '#F2EDE4', borderRadius: 5,
+                  padding: '1px 7px', minWidth: 36, textAlign: 'center',
+                }}>
+                  {fontStyle[key]}{unit}
+                </span>
+              </div>
+              <div style={{ position: 'relative', height: 20, display: 'flex', alignItems: 'center' }}>
+                {/* track filled */}
+                <div style={{
+                  position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)',
+                  width: '100%', height: 3, background: '#E5DFD4', borderRadius: 3,
+                }} />
+                <div style={{
+                  position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)',
+                  width: `${pct}%`, height: 3, background: '#2C2416', borderRadius: 3,
+                  transition: 'width 0.05s',
+                }} />
+                <input
+                  type="range" min={min} max={max} value={fontStyle[key]}
+                  onChange={e => onFontStyleChange(key, Number(e.target.value))}
+                  style={{
+                    position: 'relative', width: '100%', margin: 0,
+                    appearance: 'none', WebkitAppearance: 'none',
+                    background: 'transparent', cursor: 'pointer',
+                    height: 20,
+                  }}
+                />
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -547,7 +581,7 @@ export default function Step4({ glyphs = [], fontStyle, onFontStyleChange, onFon
     { id: 'features',  label: 'OT Features' },
     { id: 'metrics',   label: 'Font Metrics' },
     { id: 'preview',   label: 'Preview' },
-    { id: 'install',   label: 'Install Guide' },
+    { id: 'download',  label: '⬇ Download' },
   ]
 
   return (
@@ -592,9 +626,6 @@ export default function Step4({ glyphs = [], fontStyle, onFontStyleChange, onFon
           <p style={{ fontSize: 11, color: C.inkMd, marginTop: 3 }}>Go back to Step 3 to extract glyphs from the PDF first</p>
         </div>
       )}
-
-      {/* ── Font Style Sliders (P1.1) ───────────────────────────────────────── */}
-      <FontStylePanel fontStyle={fontStyle} onFontStyleChange={onFontStyleChange} />
 
       {/* ── Stats ─────────────────────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
@@ -698,6 +729,11 @@ export default function Step4({ glyphs = [], fontStyle, onFontStyleChange, onFon
               Implemented as real GSUB6 chaining context lookups — not a UI label.
               Detects repeated glyphs and cycles variants to simulate natural handwriting.
             </p>
+          </div>
+
+          {/* Font Style Sliders */}
+          <div style={{ marginTop: 14 }}>
+            <FontStylePanel fontStyle={fontStyle} onFontStyleChange={onFontStyleChange} />
           </div>
         </div>
       )}
@@ -886,143 +922,137 @@ export default function Step4({ glyphs = [], fontStyle, onFontStyleChange, onFon
         <FontPreviewPane fontName={fontName} ttfBuffer={buildResult?.ttfBuffer ?? null} />
       </div>
 
-      {/* ════════════ Tab: Install ════════════ */}
-      {activeTab === 'install' && (
-        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px', marginBottom: 20 }}>
-          <p style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.inkLt, marginBottom: 14 }}>Install Font on Your System</p>
-          <InstallGuidePanel fontName={fontName} />
-        </div>
-      )}
+      {/* ════════════ Tab: Download ════════════ */}
+      {activeTab === 'download' && (
+        <div style={{ marginBottom: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-      {/* ════════════ Build Panel ════════════ */}
-      <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 16, padding: '20px 24px', marginBottom: 14 }}>
-
-        {/* Font name input */}
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
-          <div style={{ flex: 1, minWidth: 200 }}>
-            <p style={{ fontSize: 11, color: C.inkLt, marginBottom: 5 }}>Font Family Name</p>
-            <input
-              value={fontName}
-              onChange={e => setFontName(e.target.value.trim() || FONT_NAME)}
-              disabled={buildState === 'building'}
-              style={{
-                width: '100%', boxSizing: 'border-box',
-                border: `1px solid ${C.border}`, borderRadius: 8,
-                padding: '7px 12px', fontSize: 13, fontFamily: 'monospace',
-                color: C.ink, background: buildState === 'building' ? C.bgMuted : C.bgCard,
-              }}
-              maxLength={64}
-            />
-          </div>
-          <p style={{ fontSize: 11, color: C.inkLt, paddingBottom: 8 }}>
-            {charCount} chars × 3 = {totalVariants} glyphs
-          </p>
-        </div>
-
-        {/* Progress */}
-        {buildState === 'building' && (
-          <div style={{ marginBottom: 16 }}>
-            <ProgressBar pct={progress.pct} label={progress.label} sublabel={`${charCount} chars → ${totalVariants} glyphs`} />
-            <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
-              {[
-                { label: 'Validating paths',  done: progress.pct >= 10 },
-                { label: 'Computing metrics', done: progress.pct >= 35 },
-                { label: 'Building glyphs',   done: progress.pct >= 65 },
-                { label: 'GSUB/GPOS tables',  done: progress.pct >= 82 },
-                { label: 'Exporting files',   done: progress.pct >= 92 },
-              ].map(s => (
-                <span key={s.label} style={{
-                  fontSize: 10, padding: '3px 9px',
-                  background: s.done ? C.sageLt : C.bgMuted,
-                  border: `1px solid ${s.done ? C.sageMd : C.border}`,
-                  borderRadius: 6, color: s.done ? C.sage : C.inkLt,
-                  transition: 'all 0.25s',
-                }}>{s.done ? '✓' : '○'} {s.label}</span>
-              ))}
+          {/* ── Font name row ── */}
+          <div style={{ background: '#fff', border: '1px solid #DDD8CE', borderRadius: 14, padding: '20px 24px', boxShadow: '0 1px 4px rgba(44,36,22,0.06)' }}>
+            <p style={{ fontSize: 11, color: '#8A7B62', fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>Font Family Name</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+              <input
+                value={fontName}
+                onChange={e => setFontName(e.target.value.trim() || FONT_NAME)}
+                disabled={buildState === 'building'}
+                style={{
+                  flex: 1, minWidth: 200, boxSizing: 'border-box',
+                  border: '1.5px solid #DDD8CE', borderRadius: 8,
+                  padding: '9px 14px', fontSize: 14, fontFamily: 'monospace',
+                  color: '#1A1410', background: buildState === 'building' ? '#F7F5F0' : '#FDFCF9',
+                  outline: 'none',
+                }}
+                maxLength={64}
+              />
+              <span style={{ fontSize: 12, color: '#8A7B62', whiteSpace: 'nowrap', background: '#F2EDE4', borderRadius: 8, padding: '5px 12px' }}>
+                {charCount} chars × 3 = <b style={{ color: '#1A1410' }}>{totalVariants}</b> glyphs
+              </span>
             </div>
           </div>
-        )}
 
-        {/* Error */}
-        {buildState === 'error' && (
-          <div style={{ background: C.blushLt, border: `1px solid ${C.blushMd}`, borderRadius: 8, padding: '10px 14px', marginBottom: 14 }}>
-            <p style={{ fontSize: 11, color: C.blush, fontWeight: 500 }}>⚠ Build failed</p>
-            <p style={{ fontSize: 10, color: C.inkMd, marginTop: 4, fontFamily: 'monospace' }}>{errorMsg}</p>
-          </div>
-        )}
+          {/* ── Progress ── */}
+          {buildState === 'building' && (
+            <div style={{ background: '#fff', border: '1px solid #DDD8CE', borderRadius: 14, padding: '20px 24px', boxShadow: '0 1px 4px rgba(44,36,22,0.06)' }}>
+              <ProgressBar pct={progress.pct} label={progress.label} sublabel={`${charCount} chars → ${totalVariants} glyphs`} />
+              <div style={{ display: 'flex', gap: 6, marginTop: 12, flexWrap: 'wrap' }}>
+                {[
+                  { label: 'Validating paths',  done: progress.pct >= 10 },
+                  { label: 'Computing metrics', done: progress.pct >= 35 },
+                  { label: 'Building glyphs',   done: progress.pct >= 65 },
+                  { label: 'GSUB/GPOS tables',  done: progress.pct >= 82 },
+                  { label: 'Exporting files',   done: progress.pct >= 92 },
+                ].map(s => (
+                  <span key={s.label} style={{
+                    fontSize: 10, padding: '3px 9px',
+                    background: s.done ? C.sageLt : C.bgMuted,
+                    border: `1px solid ${s.done ? C.sageMd : C.border}`,
+                    borderRadius: 6, color: s.done ? C.sage : C.inkLt,
+                    transition: 'all 0.25s',
+                  }}>{s.done ? '✓' : '○'} {s.label}</span>
+                ))}
+              </div>
+            </div>
+          )}
 
-        {/* Success */}
-        {buildState === 'done' && buildResult && (
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#EBF5EE', border: '1px solid #A8D5B5', borderRadius: 8, padding: '6px 14px', fontSize: 12, color: '#2E6B3E', marginBottom: 14 }}>
-              ✅ Font compiled — {buildResult.glyphCount} total glyphs
+          {/* ── Error ── */}
+          {buildState === 'error' && (
+            <div style={{ background: C.blushLt, border: `1px solid ${C.blushMd}`, borderRadius: 12, padding: '14px 20px' }}>
+              <p style={{ fontSize: 12, color: C.blush, fontWeight: 600 }}>⚠ Build failed</p>
+              <p style={{ fontSize: 11, color: C.inkMd, marginTop: 4, fontFamily: 'monospace' }}>{errorMsg}</p>
+            </div>
+          )}
+
+          {/* ── Success state ── */}
+          {buildState === 'done' && buildResult && (<>
+
+            {/* compiled badge + skipped */}
+            <div style={{ background: '#F0FAF3', border: '1px solid #A8D5B5', borderRadius: 12, padding: '14px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 18 }}>✅</span>
+                <div>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: '#1E5C30' }}>Font compiled successfully</p>
+                  <p style={{ fontSize: 11, color: '#3A7A4A', marginTop: 2 }}>
+                    {buildResult.glyphCount} total glyphs
+                    {buildResult.skipped.length > 0 && <span style={{ color: C.amber, marginLeft: 8 }}>· {buildResult.skipped.length} skipped</span>}
+                  </p>
+                </div>
+              </div>
               {buildResult.skipped.length > 0 && (
-                <span style={{ color: C.amber, marginLeft: 6 }}>({buildResult.skipped.length} skipped)</span>
+                <div style={{ marginTop: 10 }}><SkippedGlyphsPanel skipped={buildResult.skipped} /></div>
               )}
             </div>
 
-            <SkippedGlyphsPanel skipped={buildResult.skipped} />
-
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 14, marginBottom: 12 }}>
-              {[
-                { label: `${fontName}.ttf`,  action: handleDownloadTTF,  primary: true  },
-                { label: `${fontName}.woff`, action: handleDownloadWOFF, primary: true  },
-                { label: 'glyphMap.json',     action: handleDownloadMap,  primary: false },
-                { label: 'metadata.json',     action: handleDownloadMeta, primary: false },
-              ].map(f => (
-                <button key={f.label} onClick={f.action} style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                  background: f.primary ? C.ink : C.bgMuted,
-                  color:      f.primary ? '#FBF9F5' : C.inkMd,
-                  border: `1px solid ${f.primary ? C.ink : C.border}`,
-                  borderRadius: 8, padding: '7px 14px',
-                  fontSize: 12, fontFamily: "'DM Sans', sans-serif", cursor: 'pointer',
-                }}>⬇ {f.label}</button>
-              ))}
+            {/* Install guide */}
+            <div style={{ background: '#fff', border: '1px solid #DDD8CE', borderRadius: 14, padding: '20px 24px', boxShadow: '0 1px 4px rgba(44,36,22,0.06)' }}>
+              <p style={{ fontSize: 11, color: '#8A7B62', fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 16 }}>Install on Your System</p>
+              <InstallGuidePanel fontName={fontName} />
             </div>
 
-            <button onClick={handleDownloadZip} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 8,
-              background: C.sage, color: '#fff', border: 'none',
-              borderRadius: 10, padding: '9px 22px',
-              fontSize: 13, fontFamily: "'DM Sans', sans-serif",
-              cursor: 'pointer', fontWeight: 500,
+            {/* Download button */}
+            <div style={{ background: '#1A1410', border: '1px solid #2C2416', borderRadius: 14, padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14 }}>
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 600, color: '#F0EBE0' }}>{fontName}.ttf</p>
+                <p style={{ fontSize: 11, color: '#7A6E58', marginTop: 3 }}>TrueType · {buildResult.glyphCount} glyphs · ready to install</p>
+              </div>
+              <button onClick={handleDownloadTTF} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 8,
+                background: '#F0EBE0', color: '#1A1410',
+                border: 'none', borderRadius: 10, padding: '11px 28px',
+                fontSize: 13, fontFamily: "'DM Sans', sans-serif",
+                cursor: 'pointer', fontWeight: 700, letterSpacing: '0.01em',
+                flexShrink: 0,
+              }}>
+                ⬇ Download .ttf
+              </button>
+            </div>
+
+          </>)}
+
+          {/* ── Build / Rebuild button ── */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            {buildState === 'idle' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#F7F5F0', border: '1px solid #DDD8CE', borderRadius: 10, padding: '10px 16px' }}>
+                <span style={{ fontSize: 12, color: '#8A7B62' }}>⟳ Preparing font build…</span>
+              </div>
+            )}
+            {buildState === 'done' && (
+              <Btn onClick={() => { setBuildState('idle'); setBuildResult(null); setProgress({ pct: 0, label: '' }); setTimeout(() => handleBuild(), 50) }} variant="ghost" size="sm">
+                ↺ Rebuild
+              </Btn>
+            )}
+            {/* Build log toggle */}
+            <button onClick={() => setShowLog(v => !v)} style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              fontSize: 11, color: C.inkLt, fontFamily: "'DM Sans', sans-serif",
+              display: 'flex', alignItems: 'center', gap: 4, padding: 0,
             }}>
-              📦 Export ZIP (fonts + CSS + INSTALL.md + build.log)
+              <span style={{ fontFamily: 'monospace' }}>{showLog ? '▾' : '▸'}</span>
+              Build Log ({buildLog.length} entries)
             </button>
           </div>
-        )}
+          {showLog && <BuildLogPanel entries={buildLog} />}
 
-        {buildState !== 'done' && (
-          <Btn onClick={handleBuild} disabled={!hasGlyphs || buildState === 'building'} variant="sage" size="md">
-            {buildState === 'building'
-              ? `⟳ Building… ${progress.pct}%`
-              : buildState === 'error'
-              ? '↺ Retry'
-              : `⚙ Build Font — ${charCount} characters`}
-          </Btn>
-        )}
-
-        {buildState === 'done' && (
-          <Btn
-            onClick={() => { setBuildState('idle'); setBuildResult(null); setProgress({ pct: 0, label: '' }) }}
-            variant="ghost" size="sm"
-          >↺ Rebuild</Btn>
-        )}
-
-        {/* Build log */}
-        <div style={{ marginTop: 14 }}>
-          <button onClick={() => setShowLog(v => !v)} style={{
-            background: 'none', border: 'none', cursor: 'pointer',
-            fontSize: 11, color: C.inkLt, fontFamily: "'DM Sans', sans-serif",
-            display: 'flex', alignItems: 'center', gap: 5, padding: 0,
-          }}>
-            <span style={{ fontFamily: 'monospace' }}>{showLog ? '▾' : '▸'}</span>
-            Build Log ({buildLog.length} entries)
-          </button>
-          {showLog && <div style={{ marginTop: 8 }}><BuildLogPanel entries={buildLog} /></div>}
         </div>
-      </div>
+      )}
 
     </div>
   )
