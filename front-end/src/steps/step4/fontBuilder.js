@@ -89,23 +89,27 @@ export function validateSvgPath(svgPath) {
  * @param {number} [cp=0] - Unicode codepoint; used to pick Thai mark Y-zone
  * @returns {object[]} array of opentype.js path command objects
  */
-export function svgPathToOTCommands(svgPath, cp = 0) {
+export function svgPathToOTCommands(svgPath, cp = 0, glyphMeta = {}) {
   const validation = validateSvgPath(svgPath)
   if (!validation.valid) return []
 
-  // ── Baseline shift ────────────────────────────────────────────────────────
-  // SVG path uses 0-100 space (Y-down).  After Y-flip: (100 - svgY) * SCALE.
-  // Without a shift the glyph bottom lands at ~5*SCALE = 45 font-units, but
-  // it should sit at DESCENDER (-200).  The top then overshoots ASCENDER (800)
-  // causing all glyphs to stack/overlap and appear as solid black blobs.
+  // ── Per-glyph baseline shift ──────────────────────────────────────────────
+  // Step 3 ส่ง svgBaseline = svgY ที่เป็นก้นตัวอักษรจริง (เช่น 78 หรือ 80)
+  // และ svgDescBot = ก้นสุดของ descender (เช่น 95 สำหรับ g/j/p/q/y)
   //
-  // Fix: shift every Y so that the glyph bottom (svgY ≈ 95, PAD=5 from top)
-  // aligns to DESCENDER.
-  //   glyph_bottom_font = (100 - 95) * SCALE = 5 * 9 = 45
-  //   BASELINE_SHIFT    = DESCENDER - 45 = -200 - 45 = -245
-  //   Result: bottom = 45 - 245 = -200 ✓   top ≈ 855 - 245 = 610 ✓ (< ASCENDER 800)
-  const GLYPH_BOTTOM_SVG = 95           // SVG y of glyph bottom (100 - PAD)
-  const BASELINE_SHIFT   = DESCENDER - ((100 - GLYPH_BOTTOM_SVG) * SCALE)  // ≈ -245
+  // แปลง: font_y = (100 - svgY) * SCALE + BASELINE_SHIFT
+  // โดย BASELINE_SHIFT คำนวณให้ svgBaseline → 0 (font baseline)
+  //   font_y_at_baseline = (100 - svgBaseline) * SCALE + BASELINE_SHIFT = 0
+  //   → BASELINE_SHIFT = -(100 - svgBaseline) * SCALE
+  //
+  // Simple single-formula mapping (ไม่ซับซ้อน ไม่ 2-zone)
+  // glyphPipeline ส่ง svgBaseline=80 คงที่ทุกตัว
+  // สูตร: fontY = (svgBaseline - svgY) / svgBaseline * CAP_HEIGHT
+  //   svgY=80 (baseline) → 0 font units  ✓
+  //   svgY=0  (top)      → CAP_HEIGHT (680) font units  ✓
+  //   svgY>80 (descender)→ negative font units  ✓
+  const svgBaseline = glyphMeta.svgBaseline ?? 80
+  const BASELINE_SHIFT = 0  // unused but kept for Thai mark code below
 
   // ── Thai mark zone placement — SCALE + TRANSLATE (zone-fit) ─────────────
   // opentype.js 1.3.x cannot write GPOS, so mark positions are baked into path
@@ -155,7 +159,9 @@ export function svgPathToOTCommands(svgPath, cp = 0) {
 
   // Default converters for non-marks (identity X scale, baseline-shifted Y)
   let toFontX = (svgX) => svgX * SCALE
-  let toFontY = (svgY) => (100 - svgY) * SCALE + BASELINE_SHIFT
+  // Simple toFontY: proportional map ผ่าน baseline
+  //   svgY=80 → 0 (baseline), svgY=0 → CAP_HEIGHT, svgY>80 → negative
+  let toFontY = (svgY) => (svgBaseline - svgY) / svgBaseline * CAP_HEIGHT
 
   if (isMark) {
     // ── Pass 1: collect all SVG X and Y values for bbox ────────────────────
@@ -372,14 +378,21 @@ export function buildGlyphMap(glyphs, seed = Math.random()) {
       ;[dv[i], dv[j]] = [dv[j], dv[i]]
     }
 
+    // เก็บ baseline metadata จาก Step 3 (ใช้ค่าของ default glyph)
+    const _g0 = shuffled[0]
     map.set(ch, {
       codepoint: cp,
       unicode:   `U+${cp.toString(16).toUpperCase().padStart(4, '0')}`,
-      default:   deformPath(shuffled[0].svgPath, dv[0]),
+      default:   deformPath(_g0.svgPath, dv[0]),
       alt1:      deformPath(shuffled[Math.min(1, shuffled.length - 1)].svgPath, dv[1]),
       alt2:      deformPath(shuffled[Math.min(2, shuffled.length - 1)].svgPath, dv[2]),
-      rawId:     shuffled[0].id,
-      viewBox:   shuffled[0].viewBox || '0 0 100 100',
+      rawId:     _g0.id,
+      viewBox:   _g0.viewBox || '0 0 100 100',
+      meta: {
+        svgBaseline: _g0.svgBaseline ?? 78,
+        svgDescBot:  _g0.svgDescBot  ?? 78,
+        svgCapTop:   _g0.svgCapTop   ?? 10,
+      },
     })
   }
 
@@ -487,12 +500,14 @@ export async function compileFontBuffer(glyphMap, fontName = FONT_NAME, onProgre
       const hex     = cp.toString(16).toUpperCase().padStart(Math.max(4, cp.toString(16).length % 2 === 0 ? cp.toString(16).length : cp.toString(16).length + 1), '0')
       const name    = `uni${hex}`
 
-      const defCmds  = svgPathToOTCommands(defPath, cp)
+      // ส่ง glyphMeta จาก Step 3 เพื่อให้ BASELINE_SHIFT คำนวณถูกต้องต่อตัว
+      const glyphMeta = data.meta || {}
+      const defCmds  = svgPathToOTCommands(defPath, cp, glyphMeta)
       const alt1Cmds = validateSvgPath(alt1Path).valid
-        ? svgPathToOTCommands(alt1Path, cp)
+        ? svgPathToOTCommands(alt1Path, cp, glyphMeta)
         : defCmds
       const alt2Cmds = validateSvgPath(alt2Path).valid
-        ? svgPathToOTCommands(alt2Path, cp)
+        ? svgPathToOTCommands(alt2Path, cp, glyphMeta)
         : defCmds
 
       // ── สุ่มเลือก variant ที่จะ bake เป็น Unicode glyph โดยตรง ─────────

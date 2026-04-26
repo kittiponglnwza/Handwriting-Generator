@@ -108,7 +108,7 @@ export function getPageCapacity(pageHeight, startY, cellSize, gap) {
 // SVG Tracing: แปลง inkCanvas → SVG path
 // ใช้ column-based filled outline ที่ reliable และ font-valid
 // ───────────────────────────────────────────────────────────────
-function traceToSVGPath(inkCanvas, width, height) {
+function traceToSVGPath(inkCanvas, width, height, _ch = '') {
   try {
     const ctx2 = inkCanvas.getContext("2d")
     if (!ctx2) return null
@@ -145,9 +145,26 @@ function traceToSVGPath(inkCanvas, width, height) {
 
     const bw = Math.max(bxMax - bxMin, 1)
     const bh = Math.max(byMax - byMin, 1)
-    const PAD = 5
-    const toSvgX = x => PAD + ((x - bxMin) / bw) * (100 - PAD * 2)
-    const toSvgY = y => PAD + ((y - byMin) / bh) * (100 - PAD * 2)
+    const PAD_X = 5
+
+    // ── Clean baseline-anchored mapping ──────────────────────────────────────
+    // หลักการ: วาง ink ให้ก้น (byMax) อยู่ที่ SVG_BASELINE=80 เสมอ
+    // scale proportionally จาก ink pixel → SVG units
+    // ไม่ทำ zone-based scaling ใน step นี้ — fontBuilder จัดการเอง
+    //
+    // SVG_BASELINE = 80 (คงที่ทุกตัว)
+    // ink height bh → scale ให้สูงสุดไม่เกิน SVG_BASELINE (=80 units)
+    // ทำให้ตัวสูงสุดแตะ svgY=0 พอดี (ไม่ overflow ออกนอก viewBox)
+    const SVG_BASELINE = 80
+    const MAX_HEIGHT   = SVG_BASELINE  // ความสูงสูงสุดใน SVG space
+
+    // scale: 1 ink pixel = ? SVG unit
+    // cap ที่ MAX_HEIGHT/bh ป้องกันตัวเล็ก scale ระเบิด
+    const scale = Math.min(MAX_HEIGHT / Math.max(bh, 1), MAX_HEIGHT / 20)
+
+    const toSvgX = x => PAD_X + ((x - bxMin) / bw) * (100 - PAD_X * 2)
+    // anchor byMax → SVG_BASELINE, scale ขึ้นตามสัดส่วน
+    const toSvgY = y => SVG_BASELINE - (byMax - y) * scale
 
     // ── Centerline / medial-axis tracing ─────────────────────────────────────
     // แทน silhouette outline ด้วย centerline จริงๆ: หา midpoint ของแต่ละ column
@@ -293,7 +310,13 @@ function traceToSVGPath(inkCanvas, width, height) {
     }
 
     if (pathCmds.length === 0) return null
-    return { path: pathCmds.join(" "), viewBox: "0 0 100 100" }
+    return {
+      path: pathCmds.join(" "),
+      viewBox: "0 0 100 100",
+      svgBaseline: SVG_BASELINE,  // คงที่ทุกตัว = 80
+      svgDescBot:  SVG_BASELINE,  // fontBuilder ใช้ svgBaseline เดียว
+      svgCapTop:   0,
+    }
   } catch {
     return null
   }
@@ -317,15 +340,87 @@ function dpSimplify(pts, epsilon) {
   }
   return [first, last]
 }
+// ── potrace loader (singleton) ──────────────────────────────────────────
+// ใช้ package จริง: npm install potrace
+import("potrace") // ensure vite sees dependency
 
-async function traceGlyphAsync(inkCanvas, width, height) {
+let _potraceReady = null // Promise<module|null>
+
+async function getPotraceAPI() {
+  if (_potraceReady) return _potraceReady
+
+  _potraceReady = (async () => {
+    try {
+      const mod = await import("potrace")
+      return mod.default ?? mod
+    } catch (err) {
+      console.warn("potrace load failed:", err)
+      return null
+    }
+  })()
+
+  return _potraceReady
+}
+
+// แปลง inkCanvas → SVG path string
+async function traceWithPotrace(inkCanvas, width, height) {
+  const potrace = await getPotraceAPI()
+  if (!potrace) return null
+
+  try {
+    // canvas -> blob/url
+    const blob = await new Promise(res => inkCanvas.toBlob(res, "image/png"))
+    if (!blob) return null
+
+    const url = URL.createObjectURL(blob)
+
+    const svg = await new Promise((resolve, reject) => {
+      potrace.trace(
+        url,
+        {
+          turdSize: 2,
+          alphaMax: 1,
+          optCurve: true,
+          optTolerance: 0.2,
+          threshold: 180,
+          color: "black",
+          background: "transparent",
+        },
+        (err, result) => {
+          if (err) reject(err)
+          else resolve(result)
+        }
+      )
+    })
+
+    URL.revokeObjectURL(url)
+
+    if (!svg) return null
+
+    // ดึง path d="" ออกจาก svg
+    const match = svg.match(/<path[^>]*d="([^"]+)"/i)
+    if (!match) return null
+
+    return {
+      path: match[1],
+      viewBox: "0 0 100 100",
+    }
+  } catch (err) {
+    console.warn("potrace trace failed:", err)
+    return null
+  }
+}
+
+async function traceGlyphAsync(inkCanvas, width, height, ch = '') {
+  const potraceResult = await traceWithPotrace(inkCanvas, width, height)
+  if (potraceResult) return potraceResult
+
   return new Promise(resolve => {
     setTimeout(() => {
-      resolve(traceToSVGPath(inkCanvas, width, height))
+      resolve(traceToSVGPath(inkCanvas, width, height, ch))
     }, 0)
   })
 }
-
 export function extractGlyphsFromCanvas({ ctx, pageWidth, pageHeight, chars, calibration, cellRects }) {
   const useRegDots = cellRects && cellRects.length >= chars.length
 
@@ -407,12 +502,15 @@ export async function traceAllGlyphs(rawGlyphs) {
         const { _inkCanvas, _inkW, _inkH, ...rest } = g
         return { ...rest, svgPath: null, viewBox: "0 0 100 100" }
       }
-      const traced = await traceGlyphAsync(g._inkCanvas, g._inkW, g._inkH)
+      const traced = await traceGlyphAsync(g._inkCanvas, g._inkW, g._inkH, g.ch || '')
       const { _inkCanvas, _inkW, _inkH, ...rest } = g
       return {
         ...rest,
-        svgPath: traced?.path || null,
-        viewBox: traced?.viewBox || "0 0 100 100",
+        svgPath:     traced?.path        || null,
+        viewBox:     traced?.viewBox     || "0 0 100 100",
+        svgBaseline: traced?.svgBaseline ?? 78,
+        svgDescBot:  traced?.svgDescBot  ?? 78,
+        svgCapTop:   traced?.svgCapTop   ?? 10,
       }
     })
   )

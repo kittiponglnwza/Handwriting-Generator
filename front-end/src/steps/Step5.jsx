@@ -111,10 +111,17 @@ function renderHandwrittenSVG({ text, glyphMap, fontSize, lineHeight, letterSp, 
         : null
 
       if (svgPath) {
+        // SVG_BASELINE = 80 (glyphPipeline.js วาง baseline ไว้ที่ svgY=80)
+        // translate ให้ svgY=80 ตรงกับ y (text baseline)
+        // scale = fontSize / 100 แต่ต้อง offset ให้ baseline ตรง:
+        //   baseline ใน SVG space = 80 units
+        //   หลัง scale: baseline อยู่ที่ 80 * scale = fontSize * 0.8
+        //   ดังนั้น translateY = y - fontSize * 0.8  (ไม่ใช่ 0.82)
         const scale = fontSize / 100
+        const SVG_BASELINE_RATIO = 0.80   // svgY=80 / viewBox=100
         const rot  = (xorshift(posCounter * 13337 + seed * 31337) - 0.5) * 3.5
         svgLines.push(
-          `<g transform="translate(${x}, ${y - fontSize * 0.82}) rotate(${rot.toFixed(2)}, ${fontSize/2}, ${fontSize/2}) scale(${scale})">
+          `<g transform="translate(${x}, ${y - fontSize * SVG_BASELINE_RATIO}) rotate(${rot.toFixed(2)}, ${fontSize/2}, ${fontSize * SVG_BASELINE_RATIO}) scale(${scale})">
             <path d="${svgPath}" fill="${inkCol}" />
           </g>`
         )
