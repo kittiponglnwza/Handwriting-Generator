@@ -13,6 +13,7 @@
     "jspdf": "^4.2.1",
     "opentype.js": "^1.3.4",
     "pdfjs-dist": "^5.5.207",
+    "posthog-js": "^1.372.5",
     "potrace": "^2.1.8",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"

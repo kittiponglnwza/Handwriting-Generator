@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import C from '../styles/colors.js'
+import C from '../../styles/colors.js'
 
 export default function DebugOverlay({ metrics = {} }) {
   const [expanded, setExpanded] = useState(false)

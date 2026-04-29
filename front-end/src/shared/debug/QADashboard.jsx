@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useMemo } from 'react'
-import C from '../styles/colors'
+import C from "../../styles/colors";
 
 export default function QADashboard({ glyphs, qaReport, onGlyphSelect, onRetryExtraction }) {
   const [selectedStatus, setSelectedStatus] = useState('all')

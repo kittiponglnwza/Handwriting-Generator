@@ -1,4 +1,4 @@
-import C from "../styles/colors"
+import C from "../../styles/colors"
 
 export default function Btn({
   children,
