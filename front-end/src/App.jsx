@@ -9,7 +9,7 @@ import { usePipeline } from "./hooks/usePipeline.js"
 import C from "./styles/colors"
 
 // ─── Lazy-loaded heavy steps ──────────────────────────────────────────────────
-const Step4 = lazy(() => import("./steps/Step4.jsx"))
+const Step4 = lazy(() => import("./steps/Step4"))
 const Step5 = lazy(() => import("./steps/Step5"))
 
 // ─── Step definitions ─────────────────────────────────────────────────────────
