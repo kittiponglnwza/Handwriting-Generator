@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { PipelineStateMachine, PipelineStates } from "../engine/PipelineStateMachine.js"
+import { PipelineStateMachine, PipelineStates } from "../engine/pipeline/PipelineStateMachine.js"
 
 export function usePipeline() {
   const machine = useMemo(() => new PipelineStateMachine(), [])
