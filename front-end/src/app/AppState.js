@@ -34,3 +34,60 @@ export function canOpenStep(targetStep, appState) {
     default: return false
   }
 }
+
+// ============================================================
+// AppState.js — Global application state (lightweight store)
+// ============================================================
+import { useState, useCallback } from "react";
+import { AUTH_CONFIG } from "../config/auth.config";
+
+/**
+ * useAppState — top-level state hook for the entire app.
+ * Manages auth mode, user session, and UI theme.
+ */
+export function useAppState() {
+  const [authMode, setAuthMode] = useState(AUTH_CONFIG.MODES.LOGIN);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [theme, setTheme] = useState("dark"); // "dark" | "light"
+
+  const login = useCallback((userData) => {
+    setCurrentUser(userData);
+    setIsAuthenticated(true);
+  }, []);
+
+  const logout = useCallback(() => {
+    setCurrentUser(null);
+    setIsAuthenticated(false);
+    setAuthMode(AUTH_CONFIG.MODES.LOGIN);
+  }, []);
+
+  const toggleAuthMode = useCallback(() => {
+    setAuthMode((prev) =>
+      prev === AUTH_CONFIG.MODES.LOGIN
+        ? AUTH_CONFIG.MODES.REGISTER
+        : AUTH_CONFIG.MODES.LOGIN
+    );
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
+  }, []);
+
+  return {
+    // Auth state
+    authMode,
+    setAuthMode,
+    toggleAuthMode,
+    // User state
+    currentUser,
+    isAuthenticated,
+    login,
+    logout,
+    // UI state
+    theme,
+    toggleTheme,
+  };
+}
+
+export default useAppState;

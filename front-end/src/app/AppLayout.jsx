@@ -11,6 +11,7 @@ export default function AppLayout({
   onStepSelect,
   onNext,
   onBack,
+  onLogout,
   children,
 }) {
   const nextLabel = { 1: "Next →", 2: "Next →", 3: "Build DNA →", 4: "Preview →", 5: null }
@@ -77,6 +78,7 @@ export default function AppLayout({
             })}
           </nav>
 
+          {/* ── Sidebar footer ── */}
           <div style={{ padding: "16px 20px", borderTop: `1px solid ${C.border}` }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{
@@ -85,13 +87,43 @@ export default function AppLayout({
                 display: "flex", alignItems: "center", justifyContent: "center",
                 fontSize: 11, fontWeight: 600, color: C.inkMd,
               }}>T</div>
-              <div>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <p style={{ fontSize: 11, fontWeight: 500, color: C.ink }}>Handwriting #1</p>
                 <p style={{ fontSize: 10, color: C.inkLt, marginTop: 1 }}>
                   {sidebarGlyphCount} • 10 MB max
                 </p>
               </div>
             </div>
+
+            {/* Logout button */}
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                style={{
+                  marginTop: 12,
+                  width: "100%",
+                  padding: "7px 0",
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 6,
+                  background: "transparent",
+                  cursor: "pointer",
+                  fontSize: 11,
+                  color: C.inkLt,
+                  fontFamily: "inherit",
+                  transition: "background 0.15s, color 0.15s",
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.background = C.bgMuted
+                  e.currentTarget.style.color = C.ink
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.background = "transparent"
+                  e.currentTarget.style.color = C.inkLt
+                }}
+              >
+                Sign out
+              </button>
+            )}
           </div>
         </aside>
 
@@ -106,7 +138,7 @@ export default function AppLayout({
           }}>
             <div>
               <span style={{ fontSize: 15, fontWeight: 500, color: C.ink }}>
-                {steps[activeStep - 1].label}
+                {steps[activeStep - 1]?.label ?? ""}
               </span>
               <span style={{ fontSize: 12, color: C.inkLt, marginLeft: 8 }}>
                 • Step {activeStep} of {steps.length}
@@ -147,7 +179,7 @@ export default function AppLayout({
   )
 }
 
-// ── Inline global styles (keyframes, resets) ────────────────────────────────
+// ── Inline global styles ────────────────────────────────────────────────────
 function FontLoader() {
   return (
     <style>{`

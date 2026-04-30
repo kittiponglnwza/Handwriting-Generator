@@ -22,7 +22,7 @@ function StepLoader() {
   )
 }
 
-export default function App() {
+export default function App({ onLogout }) {
   const [step, setStep] = useState(1)
   const [appState, setAppState] = useState(INITIAL_STATE)
   const pipeline = usePipeline()
@@ -91,6 +91,7 @@ export default function App() {
       onStepSelect={setStep}
       onNext={handleNext}
       onBack={() => setStep(s => s - 1)}
+      onLogout={onLogout}
     >
       {/* Step 4 stays mounted once glyphs exist to preserve ttfBuffer */}
       {(appState.glyphResult?.glyphs?.length ?? 0) > 0 && (
