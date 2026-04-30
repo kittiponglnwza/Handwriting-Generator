@@ -12,21 +12,27 @@ export default function AppLayout({
   onNext,
   onBack,
   onLogout,
+  onOpenLogin,
+  isAuthenticated,
   children,
 }) {
   const nextLabel = { 1: "Next →", 2: "Next →", 3: "Build DNA →", 4: "Preview →", 5: null }
+
+  // กรอง Login step ออกจาก sidebar nav
+  const navSteps = steps.filter(s => s.label !== "Login")
 
   return (
     <>
       <FontLoader />
       <div className="hw-app" style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
 
-        {/* ── Sidebar ────────────────────────────────────────────────────── */}
+        {/* ── Sidebar ── */}
         <aside style={{
           width: 220, minWidth: 220,
           background: C.bgCard, borderRight: `1px solid ${C.border}`,
           display: "flex", flexDirection: "column",
         }}>
+          {/* Brand */}
           <div style={{ padding: "24px 20px 20px", borderBottom: `1px solid ${C.border}` }}>
             <p style={{ fontFamily: "'DM Serif Display', serif", fontSize: 17, color: C.ink, lineHeight: 1.2 }}>
               Handwriting<br />Generator
@@ -36,8 +42,9 @@ export default function AppLayout({
             </p>
           </div>
 
+          {/* Nav steps */}
           <nav style={{ flex: 1, padding: "12px 0", overflowY: "auto" }}>
-            {steps.map(s => {
+            {navSteps.map(s => {
               const done   = activeStep > s.id
               const active = activeStep === s.id
               const locked = !canOpenStep(s.id, appState)
@@ -55,13 +62,14 @@ export default function AppLayout({
                     borderLeft: active ? `2px solid ${C.ink}` : "2px solid transparent",
                   }}
                 >
-                  <div className="step-dot" style={{
+                  <div style={{
                     width: 22, height: 22, borderRadius: "50%", flexShrink: 0,
                     display: "flex", alignItems: "center", justifyContent: "center",
                     fontSize: 9, fontWeight: 600, letterSpacing: "0.02em",
                     background: done ? C.sage : active ? C.ink : "transparent",
                     border: done ? "none" : active ? "none" : `1.5px solid ${C.borderMd}`,
                     color: done || active ? "#fff" : C.inkLt,
+                    transition: "all 0.2s ease",
                   }}>
                     {done ? "✓" : s.icon}
                   </div>
@@ -80,57 +88,126 @@ export default function AppLayout({
 
           {/* ── Sidebar footer ── */}
           <div style={{ padding: "16px 20px", borderTop: `1px solid ${C.border}` }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{
-                width: 30, height: 30, borderRadius: "50%",
-                background: C.bgMuted, border: `1px solid ${C.border}`,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 11, fontWeight: 600, color: C.inkMd,
-              }}>T</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ fontSize: 11, fontWeight: 500, color: C.ink }}>Handwriting #1</p>
-                <p style={{ fontSize: 10, color: C.inkLt, marginTop: 1 }}>
-                  {sidebarGlyphCount} • 10 MB max
-                </p>
-              </div>
-            </div>
 
-            {/* Logout button */}
-            {onLogout && (
-              <button
-                onClick={onLogout}
-                style={{
-                  marginTop: 12,
-                  width: "100%",
-                  padding: "7px 0",
-                  border: `1px solid ${C.border}`,
-                  borderRadius: 6,
-                  background: "transparent",
-                  cursor: "pointer",
-                  fontSize: 11,
-                  color: C.inkLt,
-                  fontFamily: "inherit",
-                  transition: "background 0.15s, color 0.15s",
-                }}
-                onMouseEnter={e => {
-                  e.currentTarget.style.background = C.bgMuted
-                  e.currentTarget.style.color = C.ink
-                }}
-                onMouseLeave={e => {
-                  e.currentTarget.style.background = "transparent"
-                  e.currentTarget.style.color = C.inkLt
-                }}
-              >
-                Sign out
-              </button>
+            {isAuthenticated ? (
+              /* ── Logged in state ── */
+              <>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                  <div style={{
+                    width: 32, height: 32, borderRadius: "50%",
+                    background: C.ink,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 12, fontWeight: 600, color: "#fff",
+                    flexShrink: 0,
+                  }}>T</div>
+                  <div style={{ minWidth: 0 }}>
+                    <p style={{ fontSize: 11, fontWeight: 500, color: C.ink, lineHeight: 1.3 }}>Handwriting #1</p>
+                    <p style={{ fontSize: 10, color: C.inkLt, marginTop: 1 }}>
+                      {sidebarGlyphCount} • 10 MB max
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={onLogout}
+                  style={{
+                    width: "100%", padding: "7px 0",
+                    border: `1px solid ${C.border}`, borderRadius: 6,
+                    background: "transparent", cursor: "pointer",
+                    fontSize: 11, color: C.inkLt, fontFamily: "inherit",
+                    transition: "all 0.15s",
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.background = C.bgMuted
+                    e.currentTarget.style.color = C.ink
+                    e.currentTarget.style.borderColor = C.borderMd
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.background = "transparent"
+                    e.currentTarget.style.color = C.inkLt
+                    e.currentTarget.style.borderColor = C.border
+                  }}
+                >
+                  Sign out
+                </button>
+              </>
+            ) : (
+              /* ── Guest state — Login button ── */
+              <>
+                <div style={{ marginBottom: 10 }}>
+                  <p style={{ fontSize: 10, color: C.inkLt, lineHeight: 1.5 }}>
+                    Sign in to save your work and access all features.
+                  </p>
+                </div>
+
+                <button
+                  onClick={onOpenLogin}
+                  style={{
+                    width: "100%",
+                    padding: "9px 0",
+                    border: "none",
+                    borderRadius: 8,
+                    background: C.ink,
+                    color: "#fff",
+                    cursor: "pointer",
+                    fontSize: 12,
+                    fontWeight: 500,
+                    fontFamily: "inherit",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 7,
+                    transition: "opacity 0.15s, transform 0.1s",
+                    letterSpacing: "0.01em",
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.opacity = "0.85"}
+                  onMouseLeave={e => e.currentTarget.style.opacity = "1"}
+                  onMouseDown={e => e.currentTarget.style.transform = "scale(0.98)"}
+                  onMouseUp={e => e.currentTarget.style.transform = "scale(1)"}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+                    <polyline points="10 17 15 12 10 7"/>
+                    <line x1="15" y1="12" x2="3" y2="12"/>
+                  </svg>
+                  Sign in
+                </button>
+
+                <button
+                  onClick={onOpenLogin}
+                  style={{
+                    width: "100%",
+                    marginTop: 6,
+                    padding: "7px 0",
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 8,
+                    background: "transparent",
+                    color: C.inkMd,
+                    cursor: "pointer",
+                    fontSize: 11,
+                    fontFamily: "inherit",
+                    transition: "all 0.15s",
+                    letterSpacing: "0.01em",
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.background = C.bgMuted
+                    e.currentTarget.style.borderColor = C.borderMd
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.background = "transparent"
+                    e.currentTarget.style.borderColor = C.border
+                  }}
+                >
+                  Create account
+                </button>
+              </>
             )}
           </div>
         </aside>
 
-        {/* ── Main content ───────────────────────────────────────────────── */}
+        {/* ── Main content ── */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
 
-          {/* Header */}
           <header style={{
             height: 56, flexShrink: 0,
             background: C.bgCard, borderBottom: `1px solid ${C.border}`,
@@ -138,10 +215,10 @@ export default function AppLayout({
           }}>
             <div>
               <span style={{ fontSize: 15, fontWeight: 500, color: C.ink }}>
-                {steps[activeStep - 1]?.label ?? ""}
+                {navSteps.find(s => s.id === activeStep)?.label ?? ""}
               </span>
               <span style={{ fontSize: 12, color: C.inkLt, marginLeft: 8 }}>
-                • Step {activeStep} of {steps.length}
+                • Step {activeStep} of {navSteps.length}
               </span>
             </div>
             <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
@@ -156,7 +233,6 @@ export default function AppLayout({
             </div>
           </header>
 
-          {/* Step content */}
           <main style={{
             flex: 1, overflowY: "auto",
             padding: activeStep === 5 ? 0 : "28px 32px",
@@ -165,12 +241,11 @@ export default function AppLayout({
             {children}
           </main>
 
-          {/* Progress bar */}
           <div style={{ height: 3, background: C.border }}>
             <div style={{
               height: "100%", background: C.ink,
               transition: "width 0.4s ease",
-              width: `${(activeStep / steps.length) * 100}%`,
+              width: `${(activeStep / navSteps.length) * 100}%`,
             }} />
           </div>
         </div>
@@ -179,7 +254,6 @@ export default function AppLayout({
   )
 }
 
-// ── Inline global styles ────────────────────────────────────────────────────
 function FontLoader() {
   return (
     <style>{`

@@ -10,7 +10,6 @@ import Step1 from "../features/template/TemplateStep"
 import Step2 from "../features/upload/UploadStep"
 import Step3 from "../features/extraction/ExtractionStep"
 
-// Heavy steps — lazy loaded to keep initial bundle small
 const Step4 = lazy(() => import("../features/dna/DnaStep"))
 const Step5 = lazy(() => import("../features/preview/PreviewStep"))
 
@@ -22,12 +21,11 @@ function StepLoader() {
   )
 }
 
-export default function App({ onLogout }) {
+export default function App({ isAuthenticated, onOpenLogin, onOpenRegister, onLogout }) {
   const [step, setStep] = useState(1)
   const [appState, setAppState] = useState(INITIAL_STATE)
   const pipeline = usePipeline()
 
-  // Build versioned glyphs whenever extraction result changes
   useEffect(() => {
     const glyphs = appState.glyphResult?.glyphs ?? []
     if (glyphs.length === 0) {
@@ -37,16 +35,14 @@ export default function App({ onLogout }) {
     setAppState(prev => ({ ...prev, versionedGlyphs: buildVersionedGlyphs(glyphs) }))
   }, [appState.glyphResult])
 
-  // Navigation guard — never show a locked step
   const effectiveStep = canOpenStep(step, appState)
     ? step
-    : ([4, 3, 2, 1].find(s => canOpenStep(s, appState)) ?? 2)
+    : ([4, 3, 2, 1].find(s => canOpenStep(s, appState)) ?? 1)
 
   useEffect(() => {
     if (effectiveStep !== step) setStep(effectiveStep)
   }, [effectiveStep, step])
 
-  // ── Handlers ────────────────────────────────────────────────────────────────
   const handleParsed        = (parsedFile) => setAppState({ ...INITIAL_STATE, parsedFile })
   const handleClearPdf      = () => setAppState(INITIAL_STATE)
   const handleFontReady     = ({ ttfBuffer, puaMap }) =>
@@ -60,7 +56,6 @@ export default function App({ onLogout }) {
     setAppState(prev => ({ ...prev, fontStyle: { ...prev.fontStyle, [key]: value } }))
   const handleNext = () => setStep(s => Math.min(STEPS.length, s + 1))
 
-  // ── Derived values ───────────────────────────────────────────────────────────
   const activeStep = effectiveStep
 
   const sidebarGlyphCount = useMemo(() => {
@@ -92,8 +87,10 @@ export default function App({ onLogout }) {
       onNext={handleNext}
       onBack={() => setStep(s => s - 1)}
       onLogout={onLogout}
+      onOpenLogin={onOpenLogin}
+      onOpenRegister={onOpenRegister}
+      isAuthenticated={isAuthenticated}
     >
-      {/* Step 4 stays mounted once glyphs exist to preserve ttfBuffer */}
       {(appState.glyphResult?.glyphs?.length ?? 0) > 0 && (
         <div style={{ display: activeStep === 4 ? "contents" : "none" }}>
           <ErrorBoundary key={`step4-${appState.parsedFile?.file?.name}`}>
