@@ -1,3 +1,5 @@
+// ── App.jsx — Step orchestrator
+// State now lives in app/state/appState.js + app/state/authState.js
 import { lazy, Suspense, useEffect, useMemo, useState } from "react"
 import ErrorBoundary from "../shared/components/ErrorBoundary"
 import AppLayout from "./AppLayout"

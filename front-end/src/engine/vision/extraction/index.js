@@ -1,0 +1,6 @@
+export { extractGlyphsFromCanvas, getGridGeometry, getPageCapacity } from './glyphPipeline.js'
+export { GlyphNormalizer }   from './GlyphNormalizer.js'
+export { GlyphSynthesizer }  from './GlyphSynthesizer.js'
+export { ConfidenceScoring } from './ConfidenceScoring.js'
+export { StrokeRepair }      from './StrokeRepair.js'
+export { mergeCalibration }  from './utils.js'

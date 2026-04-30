@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "paths": {
+      "@app/*":      ["src/app/*"],
+      "@engine/*":   ["src/engine/*"],
+      "@features/*": ["src/features/*"],
+      "@shared/*":   ["src/shared/*"],
+      "@hooks/*":    ["src/hooks/*"],
+      "@config/*":   ["src/config/*"],
+      "@styles/*":   ["src/styles/*"],
+      "@lib/*":      ["src/lib/*"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

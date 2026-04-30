@@ -1,0 +1,5 @@
+export { CornerAnchorDetection }             from './CornerAnchorDetection.js'
+export { SmartCropEngine }                   from './SmartCropEngine.js'
+export { buildOrderedCellRectsForPage }      from './regDots.js'
+export * from './pdfAnchors.js'
+export * from './qr.js'

@@ -1,3 +1,5 @@
+// ── Root.jsx — Auth gate → renders App or AuthPage
+// Auth state: app/state/authState.js
 // ============================================================
 // Root.jsx — App โหลดก่อน, login เป็น modal overlay
 // ============================================================
