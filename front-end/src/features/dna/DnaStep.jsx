@@ -294,45 +294,56 @@ This is TopZ's project`
     return () => { style.remove(); URL.revokeObjectURL(url); setFontLoaded(false) }
   }, [ttfBuffer, fontFamilyName])
 
-  // ── PUA rotation: แปลง plain text → text ที่ใช้ PUA codepoints สำหรับ variation ──
-  // แทนที่ตัวอักษรซ้ำด้วย alt1 / alt2 variants เพื่อให้ดูเหมือน handwriting จริง
-  // rotation pattern: default → alt1 → alt2 → default → ...
-  //   (counter ต่อตัวอักษร ไม่ใช่ global เพื่อให้ natural)
-  const applyPuaRotation = (text, map) => {
+  // ── PUA rotation: seeded-random variant per character occurrence ──
+  // ใช้ buildSeed ทำ PRNG → กด Rebuild = ลำดับ variant ใหม่ทุกครั้ง
+  // กฎ: ตัวแรกของคำ = .default เสมอ, ตัวถัดไปสุ่มจาก alt1-alt4
+  const applyPuaRotation = useMemo(() => (text, map) => {
     if (!map || map.size === 0) return text
-    const counters = {}  // ch → ครั้งที่เห็น (0-indexed)
+
+    // Mulberry32 seeded PRNG
+    let _s = ((buildSeed ?? Math.random()) * 2654435761) >>> 0
+    const rand = () => {
+      _s += 0x6D2B79F5
+      let t = _s
+      t = Math.imul(t ^ (t >>> 15), t | 1)
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+    }
+
+    let isWordStart = true
+    const lastVariant = {}
     let result = ''
+
     for (const ch of text) {
       if (ch === ' ' || ch === '\n' || ch === '\r') {
-        // word reset: clear counter so next occurrence is "first"
-        delete counters[ch]
+        isWordStart = true
         result += ch
         continue
       }
       const entry = map.get(ch)
-      if (!entry) { result += ch; continue }
-      const count = counters[ch] ?? 0
-      counters[ch] = count + 1
-      // rotationSequence from fontBuilder: [default, alt1, alt2, alt3, default, alt4]
-      const seq = entry.rotationSequence
-      if (seq && seq.length > 0) {
-        result += String.fromCodePoint(seq[count % seq.length])
+      if (!entry) { result += ch; isWordStart = false; continue }
+
+      const seq = entry.rotationSequence ?? [entry.default, entry.alt1, entry.alt2, entry.alt3, entry.alt4]
+
+      let cp
+      if (isWordStart) {
+        cp = seq[0]
       } else {
-        // fallback: 5-slot manual cycle
-        const mod = count % 5
-        if      (mod === 0) result += ch
-        else if (mod === 1) result += String.fromCodePoint(entry.alt1)
-        else if (mod === 2) result += String.fromCodePoint(entry.alt2)
-        else if (mod === 3) result += String.fromCodePoint(entry.alt3)
-        else                result += String.fromCodePoint(entry.alt4)
+        const alts = seq.filter(c => c !== lastVariant[ch])
+        const pool = alts.length > 0 ? alts : seq
+        cp = pool[Math.floor(rand() * pool.length)]
       }
+
+      lastVariant[ch] = cp
+      isWordStart = false
+      result += String.fromCodePoint(cp)
     }
     return result
-  }
+  }, [buildSeed])
 
-  const rotatedText = fontLoaded && puaMap
-    ? applyPuaRotation(previewText, puaMap)
-    : previewText
+  const rotatedText = useMemo(() =>
+    fontLoaded && puaMap ? applyPuaRotation(previewText, puaMap) : previewText
+  , [fontLoaded, puaMap, previewText, applyPuaRotation])
 
   const bgStyles = {
     white: { background: '#FEFCF8', color: '#1A1410' },
@@ -920,11 +931,11 @@ export default function DnaControls({ glyphs = [], fontStyle, onFontStyleChange,
                       </div>
                     )}
 
-                    {/* 3 variant cards — horizontal, each clickable */}
+                    {/* 5 variant cards — horizontal, each clickable */}
                     {(() => {
                       // Each card uses its OWN variant style for real-time preview
                       return (
-                        <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+                        <div style={{ display: 'flex', gap: 6, marginBottom: 14, minWidth: 0 }}>
                           {VARIANTS.map(({ key, svgPath, label, desc }) => {
                             const isActive = selectedVariant === key
                             const valid    = validateSvgPath(svgPath).valid
@@ -937,17 +948,17 @@ export default function DnaControls({ glyphs = [], fontStyle, onFontStyleChange,
                               <div key={key}
                                 onClick={() => setSelectedVariant(key)}
                                 style={{
-                                  flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                                  flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
                                   background: isActive ? C.sageLt : C.bgMuted,
                                   border: `2px solid ${isActive ? C.sage : C.border}`,
-                                  borderRadius: 12, padding: '10px 8px',
+                                  borderRadius: 10, padding: '8px 4px',
                                   cursor: 'pointer', transition: 'border-color 0.15s, background 0.15s',
                                 }}
                                 onMouseEnter={e => { if (!isActive) e.currentTarget.style.borderColor = C.borderMd }}
                                 onMouseLeave={e => { if (!isActive) e.currentTarget.style.borderColor = C.border }}
                               >
                                 <div style={{
-                                  width: 60, height: 60, background: '#fff',
+                                  width: 48, height: 48, background: '#fff',
                                   border: `1px solid ${isActive ? C.sageMd : C.borderMd}`,
                                   borderRadius: 8,
                                   display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -967,8 +978,8 @@ export default function DnaControls({ glyphs = [], fontStyle, onFontStyleChange,
                                     <span style={{ fontSize: 26, color: C.inkMd }}>{previewChar}</span>
                                   )}
                                 </div>
-                                <span style={{ fontSize: 9, fontFamily: 'monospace', color: isActive ? C.sage : C.inkMd, fontWeight: isActive ? 700 : 400 }}>{label}</span>
-                                <span style={{ fontSize: 9, color: C.inkLt, textAlign: 'center' }}>{desc}</span>
+                                <span style={{ fontSize: 8, fontFamily: 'monospace', color: isActive ? C.sage : C.inkMd, fontWeight: isActive ? 700 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>{label}</span>
+                                <span style={{ fontSize: 8, color: C.inkLt, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>{desc}</span>
                               </div>
                             )
                           })}
