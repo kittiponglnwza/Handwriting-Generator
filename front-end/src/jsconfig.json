@@ -2,8 +2,10 @@
   "compilerOptions": {
     "baseUrl": ".",
     "jsx": "react-jsx",
+    "ignoreDeprecations": "6.0",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "types": ["vitest/globals"],   // ← เพิ่มบรรทัดนี้
     "paths": {
       "@app/*":      ["src/app/*"],
       "@engine/*":   ["src/engine/*"],
