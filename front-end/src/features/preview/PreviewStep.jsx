@@ -196,6 +196,7 @@ export default function PreviewCanvas({ versionedGlyphs = [], extractedGlyphs = 
   const [exporting, setExp]     = useState(null)
   const [copied,    setCopied]  = useState(false)
   const [randomSeed,setRandSeed]= useState(42)        // ← PUA randomization seed
+  const [findChar,  setFindChar]= useState("")         // ← step5 glyph version finder
 
   const paperRef = useRef(null)
   const paperCfg = PAPERS.find(p => p.id === paper) ?? PAPERS[0]
@@ -561,6 +562,7 @@ export default function PreviewCanvas({ versionedGlyphs = [], extractedGlyphs = 
               {[
                 { id: "style",  label: "Style"  },
                 { id: "paper",  label: "Paper"  },
+                { id: "glyphs", label: "Glyphs" },
                 { id: "export", label: "Export" },
               ].map(t => (
                 <button key={t.id} onClick={() => setPanel(t.id)} style={{
@@ -813,6 +815,154 @@ export default function PreviewCanvas({ versionedGlyphs = [], extractedGlyphs = 
                   ))}
                   {glyphMap.size === 0 && <p style={{ fontSize: 10, color: T.inkLt, padding: "2px 0" }}>No glyphs yet</p>}
                 </div>
+              </>}
+
+              {/* ── Glyphs panel: find version ── */}
+              {panel === "glyphs" && <>
+                <PLabel>Find Character Versions</PLabel>
+                <div style={{ marginBottom: 14 }}>
+                  <input
+                    value={findChar}
+                    onChange={e => setFindChar(e.target.value.slice(-1))}
+                    placeholder="Type a character…"
+                    maxLength={2}
+                    style={{
+                      width: "100%", boxSizing: "border-box",
+                      border: `1.5px solid ${findChar && glyphMap.has(findChar) ? T.rust : T.border}`,
+                      borderRadius: 8, padding: "8px 12px",
+                      fontSize: 24, textAlign: "center",
+                      fontFamily: "Georgia, serif", color: T.ink,
+                      background: "white", outline: "none",
+                      transition: "border-color 0.2s",
+                    }}
+                  />
+                  {findChar && !glyphMap.has(findChar) && (
+                    <p style={{ fontSize: 10, color: T.inkMd, marginTop: 6, textAlign: "center" }}>
+                      No glyph found for "{findChar}"
+                    </p>
+                  )}
+                </div>
+
+                {findChar && glyphMap.has(findChar) && (() => {
+                  const variants = glyphMap.get(findChar) ?? []
+                  const cp = findChar.codePointAt(0)
+                  return (
+                    <div>
+                      {/* Unicode info */}
+                      <div style={{
+                        background: T.paperDk, borderRadius: 8, padding: "8px 12px",
+                        border: `1px solid ${T.border}`, marginBottom: 12,
+                      }}>
+                        <p style={{ fontSize: 10, color: T.inkMd, fontFamily: "monospace" }}>
+                          U+{cp.toString(16).toUpperCase().padStart(4,"0")}
+                          <span style={{ marginLeft: 8, color: T.inkLt }}>
+                            {cp >= 0x0E00 && cp <= 0x0E7F ? "Thai" : cp < 0x7F ? "Latin/ASCII" : "Unicode"}
+                          </span>
+                        </p>
+                        <p style={{ fontSize: 10, color: T.inkLt, marginTop: 2 }}>
+                          {variants.length} variant{variants.length !== 1 ? "s" : ""} available
+                        </p>
+                      </div>
+
+                      {/* Version cards */}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {variants.map((g, i) => {
+                          const ver = g.version ?? (i + 1)
+                          const label = ver === 1 ? "Ver 1 — Original" : ver === 2 ? "Ver 2 — Drooping tail" : "Ver 3 — Wavy stroke"
+                          const hasSvg = g.svgPath && g.svgPath.trim() && g.svgPath.trim() !== "M 0 0"
+                          const conf = g.confidence?.overall ?? g.confidence ?? null
+                          const verColors = ["#4A7C6F","#A0702A","#C0503A"]
+                          const vColor = verColors[(ver-1) % 3]
+                          return (
+                            <div key={g.id ?? i} style={{
+                              background: "white", borderRadius: 10,
+                              border: `1.5px solid ${T.border}`,
+                              padding: "10px 12px",
+                              display: "flex", alignItems: "center", gap: 12,
+                            }}>
+                              {/* Glyph preview */}
+                              <div style={{
+                                width: 52, height: 52, flexShrink: 0,
+                                background: T.paperDk, borderRadius: 8,
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                border: `1px solid ${T.border}`,
+                              }}>
+                                {g.preview ? (
+                                  <img src={g.preview} alt={findChar} style={{ width: "82%", height: "82%", objectFit: "contain" }} />
+                                ) : hasSvg ? (
+                                  <svg viewBox={g.viewBox ?? "0 0 100 100"} style={{ width: "82%", height: "82%" }}>
+                                    <path d={g.svgPath} fill="none" stroke={T.ink} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+                                  </svg>
+                                ) : (
+                                  <span style={{ fontSize: 22, fontFamily: "Georgia, serif", color: T.inkMd }}>{findChar}</span>
+                                )}
+                              </div>
+                              {/* Info */}
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                                  <span style={{
+                                    fontSize: 9, fontWeight: 700, padding: "2px 7px",
+                                    borderRadius: 4, background: vColor + "22", color: vColor,
+                                    border: `1px solid ${vColor}44`, fontFamily: "monospace",
+                                    letterSpacing: "0.04em",
+                                  }}>V{ver}</span>
+                                  <span style={{ fontSize: 10, color: T.ink, fontWeight: 500 }}>{label.split("—")[1]?.trim()}</span>
+                                </div>
+                                <p style={{ fontSize: 9, color: T.inkLt, fontFamily: "monospace" }}>
+                                  id: {String(g.id ?? "—").slice(0,18)}
+                                </p>
+                                {conf !== null && (
+                                  <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 4 }}>
+                                    <div style={{ flex: 1, height: 3, background: T.border, borderRadius: 2 }}>
+                                      <div style={{ width: `${Math.round(conf * 100)}%`, height: "100%", background: conf > 0.75 ? "#4A7C6F" : conf > 0.5 ? "#A0702A" : "#C0503A", borderRadius: 2 }} />
+                                    </div>
+                                    <span style={{ fontSize: 9, color: T.inkMd, fontFamily: "monospace", flexShrink: 0 }}>
+                                      {Math.round(conf * 100)}%
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+
+                      {/* Quick jump */}
+                      <div style={{ marginTop: 12 }}>
+                        <PLabel>Other Characters</PLabel>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                          {[...glyphMap.keys()].map(ch => (
+                            <button key={ch} onClick={() => setFindChar(ch)} style={{
+                              width: 28, height: 28, border: `1.5px solid ${ch === findChar ? T.rust : T.border}`,
+                              borderRadius: 5, background: ch === findChar ? "#FBE8E4" : "white",
+                              cursor: "pointer", fontSize: 13,
+                              fontFamily: "Georgia, serif", color: T.ink,
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                            }}>{ch}</button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })()}
+
+                {!findChar && glyphMap.size > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <PLabel>All Characters</PLabel>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                      {[...glyphMap.keys()].map(ch => (
+                        <button key={ch} onClick={() => setFindChar(ch)} style={{
+                          width: 28, height: 28, border: `1px solid ${T.border}`,
+                          borderRadius: 5, background: "white",
+                          cursor: "pointer", fontSize: 13,
+                          fontFamily: "Georgia, serif", color: T.ink,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          transition: "border-color 0.12s",
+                        }}>{ch}</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </>}
             </div>
           </aside>

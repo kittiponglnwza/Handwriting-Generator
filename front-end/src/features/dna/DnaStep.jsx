@@ -413,6 +413,8 @@ export default function DnaControls({ glyphs = [], fontStyle, onFontStyleChange,
   const [buildLog,     setBuildLog]     = useState([])
   const [showLog,      setShowLog]      = useState(false)
   const [fontName,     setFontName]     = useState(FONT_NAME)
+  const [debugMode,    setDebugMode]    = useState(false)    // ← debug m/n highlight
+  const [debugChars,   setDebugChars]   = useState('mn')     // ← chars to highlight
 
   const hasGlyphs = glyphs.length > 0
   const [buildSeed, setBuildSeed] = useState(() => Math.random())
@@ -570,8 +572,119 @@ export default function DnaControls({ glyphs = [], fontStyle, onFontStyleChange,
                   status={{ enabled: hasGlyphs && !['liga','mkmk'].includes(tag), real: false }} />
               ))
           }
+          {/* ── Random font seed button ── */}
+          <button
+            onClick={() => { if (hasGlyphs) handleBuild() }}
+            disabled={!hasGlyphs || buildState === 'building'}
+            title="Randomise glyph variant assignment seed"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 5,
+              padding: '5px 12px', borderRadius: 8, fontSize: 11,
+              background: hasGlyphs ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.15)',
+              color: hasGlyphs ? '#F0EBE0' : '#5C5340',
+              cursor: hasGlyphs ? 'pointer' : 'not-allowed',
+              fontFamily: "'DM Sans', sans-serif",
+              transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => { if (hasGlyphs) e.currentTarget.style.background = 'rgba(255,255,255,0.18)' }}
+            onMouseLeave={e => e.currentTarget.style.background = hasGlyphs ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.04)'}
+          >
+            <span style={{ fontSize: 13 }}>🎲</span> Random Font
+          </button>
+          {/* ── Debug m/n toggle ── */}
+          <button
+            onClick={() => setDebugMode(v => !v)}
+            title="Highlight specific characters across all variants"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 5,
+              padding: '5px 12px', borderRadius: 8, fontSize: 11,
+              background: debugMode ? 'rgba(192,80,58,0.25)' : 'rgba(255,255,255,0.06)',
+              border: `1px solid ${debugMode ? 'rgba(192,80,58,0.5)' : 'rgba(255,255,255,0.12)'}`,
+              color: debugMode ? '#FFB8A8' : '#9E9278',
+              cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+              transition: 'all 0.15s',
+            }}
+          >
+            <span style={{ fontSize: 12 }}>🔍</span> Debug
+          </button>
         </div>
       </div>
+
+      {/* ── Debug m/n panel ── */}
+      {debugMode && (
+        <div style={{
+          background: 'linear-gradient(135deg, #2A1810, #3A1C10)',
+          border: '1px solid rgba(192,80,58,0.35)',
+          borderRadius: 12, padding: '14px 18px', marginBottom: 16,
+          display: 'flex', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap',
+        }}>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <p style={{ fontSize: 11, fontWeight: 600, color: '#FFB8A8', marginBottom: 8, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+              🔍 Debug: Highlight Characters
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <input
+                value={debugChars}
+                onChange={e => setDebugChars(e.target.value)}
+                placeholder="e.g. mn or กขค"
+                maxLength={20}
+                style={{
+                  background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                  borderRadius: 7, padding: '6px 12px', fontSize: 13, color: '#F0EBE0',
+                  fontFamily: 'monospace', outline: 'none', width: 160,
+                }}
+              />
+              <p style={{ fontSize: 10, color: '#7A5040' }}>chars highlighted across all 3 variants below</p>
+            </div>
+          </div>
+          {/* Highlighted preview */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            {[...new Set(debugChars.split(''))].filter(ch => ch.trim() && glyphMap.has(ch)).map(ch => {
+              const g = glyphs.find(x => x.ch === ch)
+              const valid = validateSvgPath(g?.svgPath).valid
+              return (
+                <div key={ch} style={{ textAlign: 'center' }}>
+                  <p style={{ fontSize: 9, color: '#7A5040', marginBottom: 4, fontFamily: 'monospace' }}>U+{ch.codePointAt(0).toString(16).toUpperCase().padStart(4,'0')}</p>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    {[1,2,3].map(ver => {
+                      const vg = glyphs.find(x => x.ch === ch && x.version === ver) ?? g
+                      const vPath = vg?.svgPath
+                      return (
+                        <div key={ver} style={{
+                          width: 48, height: 48, background: 'rgba(255,255,255,0.06)',
+                          border: '1.5px solid rgba(192,80,58,0.5)', borderRadius: 8,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                          {vPath && validateSvgPath(vPath).valid ? (
+                            <svg viewBox={computeViewBox(vPath)} style={{ width: '85%', height: '85%' }} preserveAspectRatio="xMidYMid meet">
+                              <path d={vPath} fill="none" stroke="#FFB8A8" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          ) : (
+                            <span style={{ fontSize: 18, color: '#FFB8A8' }}>{ch}</span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <p style={{ fontSize: 9, color: '#F0EBE0', marginTop: 4, fontWeight: 600 }}>{ch}</p>
+                  <div style={{ display: 'flex', gap: 4, justifyContent: 'center', marginTop: 2 }}>
+                    {['v1','v2','v3'].map(v => <p key={v} style={{ fontSize: 7, color: '#5A3020', fontFamily: 'monospace' }}>{v}</p>)}
+                  </div>
+                </div>
+              )
+            })}
+            {[...new Set(debugChars.split(''))].filter(ch => ch.trim() && !glyphMap.has(ch) && ch !== '').map(ch => (
+              <div key={ch} style={{ textAlign: 'center', opacity: 0.4 }}>
+                <div style={{ width: 48, height: 48, border: '1px dashed rgba(192,80,58,0.3)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{ fontSize: 18, color: '#5A3020' }}>{ch}</span>
+                </div>
+                <p style={{ fontSize: 8, color: '#5A3020', marginTop: 3 }}>no glyph</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* No glyphs warning */}
       {!hasGlyphs && (

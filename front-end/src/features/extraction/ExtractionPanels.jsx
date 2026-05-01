@@ -4,6 +4,105 @@ import { GRID_GEOMETRY, GRID_COLS } from "../../engine/vision/constants.js"
 import { clamp } from "../../engine/vision/utils.js"
 import { buildOrderedCellRectsForPage, buildCellRectsFromDots, sortCellRectsReadingOrder } from "../../engine/vision/regDots.js"
 
+// ── Skeleton pulse keyframes injected once ─────────────────────────────────────
+if (typeof document !== "undefined" && !document.getElementById("skeleton-pulse-style")) {
+  const s = document.createElement("style")
+  s.id = "skeleton-pulse-style"
+  s.textContent = `
+    @keyframes skeletonPulse {
+      0%   { opacity: 0.55; }
+      50%  { opacity: 1; }
+      100% { opacity: 0.55; }
+    }
+    @keyframes skeletonShimmer {
+      0%   { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+    .skel-cell {
+      animation: skeletonPulse 1.6s ease-in-out infinite;
+    }
+    .skel-cell:nth-child(2n)   { animation-delay: 0.15s; }
+    .skel-cell:nth-child(3n)   { animation-delay: 0.30s; }
+    .skel-cell:nth-child(5n)   { animation-delay: 0.45s; }
+    .skel-cell:nth-child(7n)   { animation-delay: 0.60s; }
+    .skel-shimmer {
+      background: linear-gradient(90deg, #ede9df 25%, #f5f2ec 50%, #ede9df 75%);
+      background-size: 200% 100%;
+      animation: skeletonShimmer 1.4s ease-in-out infinite;
+    }
+  `
+  document.head.appendChild(s)
+}
+
+/** Beautiful skeleton while glyphs are loading */
+export function GlyphGridSkeleton({ count = 48, progress = 0 }) {
+  return (
+    <div>
+      {/* Progress message */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 10, marginBottom: 14,
+        padding: "10px 14px", borderRadius: 10,
+        background: "linear-gradient(135deg, #F7F4EE, #F0EDE5)",
+        border: `1px solid ${C.border}`,
+      }}>
+        <div style={{
+          width: 18, height: 18, borderRadius: "50%",
+          border: `2.5px solid ${C.borderMd}`,
+          borderTopColor: C.ink,
+          animation: "skeletonPulse 0.8s linear infinite",
+          flexShrink: 0,
+        }} />
+        <div>
+          <p style={{ fontSize: 12, fontWeight: 500, color: C.ink }}>
+            Extracting glyphs… {progress > 0 ? `${progress}%` : ""}
+          </p>
+          <p style={{ fontSize: 10, color: C.inkLt, marginTop: 2 }}>
+            Calibrating · Tracing · Normalising · Scoring
+          </p>
+        </div>
+        {progress > 0 && (
+          <div style={{ flex: 1, height: 4, background: C.border, borderRadius: 2, overflow: "hidden", marginLeft: 8 }}>
+            <div style={{
+              height: "100%", width: `${progress}%`, borderRadius: 2,
+              background: `linear-gradient(90deg, ${C.sage}, #2C8A5A)`,
+              transition: "width 0.4s ease",
+            }} />
+          </div>
+        )}
+      </div>
+
+      {/* Skeleton grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(72px, 1fr))", gap: 6 }}>
+        {Array.from({ length: count }, (_, i) => (
+          <div
+            key={i}
+            className="skel-cell"
+            style={{
+              borderRadius: 8, padding: "6px 4px 5px",
+              display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+              background: C.bgCard, border: `1.5px solid ${C.border}`,
+              animationDelay: `${(i % 7) * 0.1}s`,
+            }}
+          >
+            {/* Glyph image placeholder */}
+            <div className="skel-shimmer" style={{
+              width: "100%", aspectRatio: "1", borderRadius: 5,
+            }} />
+            {/* Char label placeholder */}
+            <div className="skel-shimmer" style={{
+              width: 20, height: 10, borderRadius: 3,
+            }} />
+            {/* Index dot placeholder */}
+            <div className="skel-shimmer" style={{
+              width: 30, height: 7, borderRadius: 3,
+            }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function Adjuster({ label, value, min, max, step, onChange }) {
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>

@@ -116,14 +116,18 @@ export default function App({ isAuthenticated, onOpenLogin, onOpenRegister, onLo
         </ErrorBoundary>
       )}
 
-      {activeStep === 3 && (
-        <ErrorBoundary key={`step3-${appState.parsedFile?.file?.name}`}>
-          <Step3
-            parsedFile={appState.parsedFile}
-            onGlyphsUpdate={handleGlyphsUpdate}
-            pipelineMachine={pipeline.machine}
-          />
-        </ErrorBoundary>
+      {/* Step3 stays mounted to preserve extracted glyphs cache */}
+      {appState.parsedFile && (
+        <div style={{ display: activeStep === 3 ? "contents" : "none" }}>
+          <ErrorBoundary key={`step3-${appState.parsedFile?.file?.name}`}>
+            <Step3
+              parsedFile={appState.parsedFile}
+              onGlyphsUpdate={handleGlyphsUpdate}
+              pipelineMachine={pipeline.machine}
+              cachedGlyphs={appState.glyphResult?.glyphs ?? []}
+            />
+          </ErrorBoundary>
+        </div>
       )}
 
       {activeStep === 5 && (

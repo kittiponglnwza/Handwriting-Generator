@@ -15,10 +15,8 @@ import C from "../../styles/colors"
 import { buildAutoPageProfiles } from "../../engine/vision/calibration.js"
 import { getGridGeometry, traceAllGlyphs } from "../../engine/vision/glyphPipeline.js"
 import { ZERO_CALIBRATION } from "../../engine/vision/constants.js"
-import { Adjuster, GridDebugOverlay, PageDebugOverlay } from "./ExtractionPanels.jsx"
-import DebugOverlay from "../../shared/debug/DebugOverlay.jsx"
+import { Adjuster, GridDebugOverlay, PageDebugOverlay, GlyphGridSkeleton } from "./ExtractionPanels.jsx"
 import { PipelineStateMachine, PipelineStates } from "../../engine/pipeline/PipelineStateMachine.js"
-import { Telemetry } from "../../engine/pipeline/Telemetry.js"
 import { PerformanceGovernor } from "../../engine/pipeline/PerformanceGovernor.js"
 import { VisionEngine } from "../../engine/vision/VisionEngine.js"
 import QADashboard from "../../shared/debug/QADashboard.jsx"
@@ -28,18 +26,17 @@ const TABS = [
   { id: "glyphs", label: "Glyphs" },
   { id: "pages", label: "Page Debug" },
   { id: "qa", label: "QA" },
-  { id: "telemetry", label: "Telemetry" },
 ]
 
 // ─── Main Component ────────────────────────────────────────────────────────────
-export default function ExtractionStep({ parsedFile, onGlyphsUpdate, pipelineMachine }) {
+export default function ExtractionStep({ parsedFile, onGlyphsUpdate, pipelineMachine, cachedGlyphs = [] }) {
   const [tab, setTab] = useState("glyphs")
-  const [glyphs, setGlyphs] = useState([])
+  // Initialise from cache so navigating back to step 3 shows results instantly
+  const [glyphs, setGlyphs] = useState(() => cachedGlyphs)
   const [qaReport, setQaReport] = useState(null)
-  const [telemetryData, setTelemetryData] = useState({})
-  const [status, setStatus] = useState("idle") // idle | running | done | error
+  const [status, setStatus] = useState(() => cachedGlyphs.length > 0 ? "done" : "idle")
   const [errorMsg, setErrorMsg] = useState("")
-  const [progress, setProgress] = useState(0)
+  const [progress, setProgress] = useState(() => cachedGlyphs.length > 0 ? 100 : 0)
   const [calibration, setCalibration] = useState(ZERO_CALIBRATION)
   const [showDebug, setShowDebug] = useState(false)
 
@@ -106,7 +103,6 @@ export default function ExtractionStep({ parsedFile, onGlyphsUpdate, pipelineMac
       setStatus("done")
 
       pipelineMachine?.transition(PipelineStates.DONE, { glyphCount: finalGlyphs.length })
-      setTelemetryData(Telemetry.getSummary?.() ?? {})
     } catch (err) {
       console.error("[ExtractionStep] extraction failed:", err)
       setErrorMsg(err.message ?? "Unknown error")
@@ -115,9 +111,9 @@ export default function ExtractionStep({ parsedFile, onGlyphsUpdate, pipelineMac
     }
   }, [parsedFile, calibration, onGlyphsUpdate, pipelineMachine])
 
-  // Auto-run when parsedFile arrives
+  // Auto-run when parsedFile arrives — skip if already extracted (navigating back)
   useEffect(() => {
-    if (parsedFile?.status === "parsed" && parsedFile.characters?.length > 0) {
+    if (parsedFile?.status === "parsed" && parsedFile.characters?.length > 0 && glyphs.length === 0) {
       runExtraction()
     }
     return () => { abortRef.current = true }
@@ -172,25 +168,6 @@ export default function ExtractionStep({ parsedFile, onGlyphsUpdate, pipelineMac
           </Btn>
         </div>
       </div>
-
-      {/* ── Progress ── */}
-      {status === "running" && (
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-            <span style={{ fontSize: 12, color: C.inkMd }}>Extracting glyphs…</span>
-            <span style={{ fontSize: 12, color: C.inkLt }}>{progress}%</span>
-          </div>
-          <div style={{ height: 6, background: C.border, borderRadius: 3, overflow: "hidden" }}>
-            <div style={{
-              height: "100%",
-              width: `${progress}%`,
-              background: C.ink,
-              borderRadius: 3,
-              transition: "width 0.3s ease",
-            }} />
-          </div>
-        </div>
-      )}
 
       {/* ── Error ── */}
       {status === "error" && (
@@ -257,12 +234,17 @@ export default function ExtractionStep({ parsedFile, onGlyphsUpdate, pipelineMac
 
       {tab === "glyphs" && (
         <div>
-          {glyphs.length === 0 && status !== "running" && (
+          {status === "running" && (
+            <GlyphGridSkeleton count={chars.length || 48} progress={progress} />
+          )}
+          {status !== "running" && glyphs.length === 0 && (
             <p style={{ fontSize: 13, color: C.inkLt, textAlign: "center", padding: 40 }}>
               {status === "idle" ? "Waiting to start…" : "No glyphs extracted yet."}
             </p>
           )}
-          <GridDebugOverlay glyphs={glyphs} />
+          {status !== "running" && glyphs.length > 0 && (
+            <GridDebugOverlay glyphs={glyphs} />
+          )}
         </div>
       )}
 
@@ -283,13 +265,6 @@ export default function ExtractionStep({ parsedFile, onGlyphsUpdate, pipelineMac
           onRetryExtraction={runExtraction}
         />
       )}
-
-      {tab === "telemetry" && (
-        <div style={{ position: "relative", minHeight: 200 }}>
-          <DebugOverlay metrics={telemetryData} />
-        </div>
-      )}
-
     </div>
   )
 }
