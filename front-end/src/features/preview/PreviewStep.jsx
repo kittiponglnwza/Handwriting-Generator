@@ -194,6 +194,7 @@ export default function PreviewCanvas({ versionedGlyphs = [], extractedGlyphs = 
   const [italic,     setItalic]  = useState(false)
   const [underline,  setUnder]   = useState(false)
   const [textColor,  setTColor]  = useState(null) // null = use inkColor default
+  const [showExportMenu, setShowExportMenu] = useState(false)
 
   const paperRef    = useRef(null)
   const editableRef = useRef(null)
@@ -204,6 +205,18 @@ export default function PreviewCanvas({ versionedGlyphs = [], extractedGlyphs = 
     if (editableRef.current) editableRef.current.innerText = textRef.current
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const exportMenuRef = useRef(null)
+  useEffect(() => {
+    if (!showExportMenu) return
+    const handler = (e) => {
+      // ถ้า click อยู่ภายใน export menu ให้ปล่อยผ่าน ไม่ปิด
+      if (exportMenuRef.current && exportMenuRef.current.contains(e.target)) return
+      setShowExportMenu(false)
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [showExportMenu])
   const paperCfg = PAPERS.find(p => p.id === paper) ?? PAPERS[0]
   const isDark   = paperCfg.bg === "#1A1F2E"
   const inkColor = isDark ? "rgba(220,210,195,.92)" : T.ink
@@ -259,7 +272,7 @@ export default function PreviewCanvas({ versionedGlyphs = [], extractedGlyphs = 
 
   const exportPNG = useCallback(async () => {
     if (!paperRef.current) return
-    setExp("png")
+    setExp("png"); setShowExportMenu(false)
     await new Promise(r => setTimeout(r, 200))
     try {
       const node = paperRef.current, SC = 2
@@ -279,6 +292,54 @@ export default function PreviewCanvas({ versionedGlyphs = [], extractedGlyphs = 
         setTimeout(() => URL.revokeObjectURL(a.href), 5000)
       }, "image/png")
     } catch (e) { console.error(e) }
+    setExp(null)
+  }, [text, fontSize, lineHeight, zoom, fontStatus, glyphMapObj, signMode, textAlign, paperCfg, activeFontFamily, inkColor])
+
+  const exportPDF = useCallback(async () => {
+    if (!paperRef.current) return
+    setExp("pdf"); setShowExportMenu(false)
+    await new Promise(r => setTimeout(r, 200))
+    try {
+      const node = paperRef.current, SC = 2
+      const canvas = document.createElement("canvas")
+      canvas.width = node.offsetWidth * SC; canvas.height = node.offsetHeight * SC
+      const ctx = canvas.getContext("2d")
+      ctx.fillStyle = paperCfg.bg; ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.scale(SC, SC)
+      ctx.font = `${signMode ? "italic " : ""}${fontSize}px ${activeFontFamily}`
+      ctx.fillStyle = inkColor; ctx.textBaseline = "top"; ctx.textAlign = textAlign
+      const lhPx  = fontSize * lineHeight
+      const drawX = textAlign === "center" ? node.offsetWidth / 2 : textAlign === "right" ? node.offsetWidth - MARGIN * zoom : MARGIN * zoom
+      textRef.current.split("\n").forEach((line, i) => ctx.fillText(line, drawX, MARGIN * zoom + i * lhPx * zoom))
+      const imgData = canvas.toDataURL("image/jpeg", 0.92)
+
+      // Load jsPDF dynamically — check both window.jspdf and window.jsPDF (bundle names vary)
+      const getJsPDF = () => window.jspdf?.jsPDF ?? window.jsPDF ?? null
+      if (!getJsPDF()) {
+        await new Promise((res, rej) => {
+          // Remove any stale/failed script tag first
+          const existing = document.querySelector('script[data-jspdf]')
+          if (existing) existing.remove()
+          const s = document.createElement("script")
+          s.setAttribute('data-jspdf', '1')
+          s.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"
+          s.onload = () => {
+            // Give the UMD module a tick to assign to window
+            setTimeout(res, 50)
+          }
+          s.onerror = () => rej(new Error("Failed to load jsPDF script"))
+          document.head.appendChild(s)
+        })
+      }
+      const jsPDF = getJsPDF()
+      if (!jsPDF) throw new Error("jsPDF not available after load")
+      const pxToMm = px => px * 25.4 / 96
+      const wMm = pxToMm(node.offsetWidth)
+      const hMm = pxToMm(node.offsetHeight)
+      const pdf = new jsPDF({ orientation: hMm > wMm ? "portrait" : "landscape", unit: "mm", format: [wMm, hMm] })
+      pdf.addImage(imgData, "JPEG", 0, 0, wMm, hMm)
+      pdf.save(`handwriting-${Date.now()}.pdf`)
+    } catch (e) { console.error("[exportPDF]", e); alert("Export PDF ล้มเหลว: " + e.message) }
     setExp(null)
   }, [text, fontSize, lineHeight, zoom, fontStatus, glyphMapObj, signMode, textAlign, paperCfg, activeFontFamily, inkColor])
 
@@ -364,21 +425,61 @@ export default function PreviewCanvas({ versionedGlyphs = [], extractedGlyphs = 
           <Vr />
           <TBtn active={showPanel} onClick={() => setShowP(s => !s)} title="Toggle panel">⊞</TBtn>
 
-          {/* Export button */}
-          <button onClick={exportPNG} style={{
-            marginLeft: 4, padding: "6px 16px",
-            background: T.ink, color: T.paper,
-            border: "none", borderRadius: 7,
-            fontSize: 11, fontWeight: 600,
-            cursor: "pointer", fontFamily: "inherit",
-            display: "flex", alignItems: "center", gap: 6,
-            letterSpacing: "0.08em", textTransform: "uppercase",
-            opacity: exporting ? 0.6 : 1, flexShrink: 0,
-            transition: "opacity 0.15s",
-          }}>
-            {exporting ? <Spin /> : "↓"}
-            {" "}Export
-          </button>
+          {/* Export split button */}
+          <div style={{ position: "relative", marginLeft: 4, flexShrink: 0 }}>
+            <div style={{ display: "flex", borderRadius: 7, overflow: "hidden", border: `1.5px solid ${T.ink}` }}>
+              <button onClick={exportPNG} style={{
+                padding: "6px 14px",
+                background: T.ink, color: T.paper,
+                border: "none", borderRight: `1px solid rgba(255,255,255,.15)`,
+                fontSize: 11, fontWeight: 600,
+                cursor: "pointer", fontFamily: "inherit",
+                display: "flex", alignItems: "center", gap: 6,
+                letterSpacing: "0.08em", textTransform: "uppercase",
+                opacity: exporting ? 0.6 : 1, transition: "opacity 0.15s",
+              }}>
+                {exporting ? <Spin /> : "↓"} Export PNG
+              </button>
+              <button onClick={() => setShowExportMenu(m => !m)} style={{
+                padding: "6px 8px",
+                background: T.ink, color: T.paper,
+                border: "none", fontSize: 10,
+                cursor: "pointer", fontFamily: "inherit",
+                display: "flex", alignItems: "center",
+              }}>▾</button>
+            </div>
+            {showExportMenu && (
+              <div ref={exportMenuRef} style={{
+                position: "absolute", top: "calc(100% + 6px)", right: 0,
+                background: T.paper, border: `1.5px solid ${T.border}`,
+                borderRadius: 9, boxShadow: "0 4px 16px rgba(44,36,32,.12)",
+                overflow: "hidden", zIndex: 100, minWidth: 140,
+              }}>
+                {[
+                  { label: "Export PNG", sub: "2× Retina image", icon: "↓", action: exportPNG },
+                  { label: "Export PDF", sub: "Print-ready PDF",  icon: "⎙", action: exportPDF },
+                ].map(item => (
+                  <button key={item.label} onClick={item.action} style={{
+                    display: "flex", alignItems: "center", gap: 10,
+                    width: "100%", padding: "10px 14px",
+                    border: "none", background: "transparent",
+                    cursor: "pointer", fontFamily: "inherit", textAlign: "left",
+                    borderBottom: `1px solid ${T.border}`,
+                    transition: "background .1s",
+                  }}
+                    onMouseEnter={e => e.currentTarget.style.background = T.surface}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                  >
+                    <span style={{ fontSize: 14, color: T.ink }}>{item.icon}</span>
+                    <div>
+                      <p style={{ fontSize: 11, fontWeight: 600, color: T.ink }}>{item.label}</p>
+                      <p style={{ fontSize: 9, color: T.inkLt, marginTop: 1 }}>{item.sub}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Row 2: Formatting controls */}
