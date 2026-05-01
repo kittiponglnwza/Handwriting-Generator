@@ -427,6 +427,79 @@ export function buildGlyphMap(glyphs, seed = Math.random()) {
   return map
 }
 
+
+// ─── Per-glyph style noise ─────────────────────────────────────────────────────
+/**
+ * Apply fontStyle (slant, boldness, randomness) as coordinate-level transforms
+ * on OT path commands. Called once per variant per glyph.
+ *
+ * @param {object[]} cmds       - opentype.js path command objects (Y-up, font units)
+ * @param {object}   fontStyle  - { slant, boldness, randomness, roughness, neatness }
+ * @param {function} rng        - seeded PRNG () => 0..1
+ * @returns {object[]} new command array with transforms applied
+ */
+function applyStyleNoise(cmds, fontStyle = {}, rng = Math.random) {
+  const slant      = fontStyle.slant      ?? 0    // -30..30 deg
+  const boldness   = fontStyle.boldness   ?? 100  // 70..150 %
+  const randomness = fontStyle.randomness ?? 0    // 0..100
+  const roughness  = fontStyle.roughness  ?? 0    // 0..100
+
+  // stroke width is handled by the font engine via path offsets —
+  // we approximate boldness by scaling X coordinates around the centroid
+  const boldScale  = boldness / 100  // 1.0 = no change
+
+  // slant: shear X = tan(slantDeg) * Y  (Y-up space, positive slant = italic right)
+  const shearX = Math.tan((slant * Math.PI) / 180)
+
+  // randomness: max jitter in font units (1000 UPM scale) — scales with noise level
+  const maxJitter  = (randomness / 100) * 18   // 0..18 fu at max
+  const maxRough   = (roughness  / 100) * 10   // 0..10 fu at max
+
+  // find centroid X for bold scaling
+  let sumX = 0, count = 0
+  for (const c of cmds) {
+    if (c.x !== undefined) { sumX += c.x; count++ }
+    if (c.x1 !== undefined) { sumX += c.x1; count++ }
+    if (c.x2 !== undefined) { sumX += c.x2; count++ }
+  }
+  const cx = count > 0 ? sumX / count : 450
+
+  const jit = () => (rng() - 0.5) * 2  // -1..1
+
+  function tx(x, y) {
+    // 1. bold scale around centroid X
+    const bx = cx + (x - cx) * boldScale
+    // 2. slant shear (Y-up: positive Y = up, shear right for italic)
+    const sx = bx + shearX * y
+    // 3. jitter
+    return sx + jit() * maxJitter + jit() * maxRough
+  }
+
+  function ty(y) {
+    // roughness adds slight Y wobble
+    return y + jit() * maxRough * 0.5
+  }
+
+  return cmds.map(c => {
+    switch (c.type) {
+      case 'M': return { type: 'M', x: tx(c.x, c.y),  y: ty(c.y) }
+      case 'L': return { type: 'L', x: tx(c.x, c.y),  y: ty(c.y) }
+      case 'C': return {
+        type: 'C',
+        x1: tx(c.x1, c.y1), y1: ty(c.y1),
+        x2: tx(c.x2, c.y2), y2: ty(c.y2),
+        x:  tx(c.x,  c.y),  y:  ty(c.y),
+      }
+      case 'Q': return {
+        type: 'Q',
+        x1: tx(c.x1, c.y1), y1: ty(c.y1),
+        x:  tx(c.x,  c.y),  y:  ty(c.y),
+      }
+      default: return c
+    }
+  })
+}
+
 // ─── Main compilation ─────────────────────────────────────────────────────────
 
 /**
@@ -446,7 +519,7 @@ export function buildGlyphMap(glyphs, seed = Math.random()) {
  *   featureStatus: object,
  * }>}
  */
-export async function compileFontBuffer(glyphMap, fontName = FONT_NAME, onProgress, seed = Math.random()) {
+export async function compileFontBuffer(glyphMap, fontName = FONT_NAME, onProgress, seed = Math.random(), fontStyle = {}) {
   const emit = (msg, pct, level = 'info') => {
     const entry = log(level, msg)
     onProgress?.(msg, pct, entry)
@@ -458,6 +531,7 @@ export async function compileFontBuffer(glyphMap, fontName = FONT_NAME, onProgre
 
   addLog(emit('เริ่ม compile font…', 2))
   addLog(emit(`จำนวน characters: ${glyphMap.size}`, 4))
+  addLog(emit(`fontStyle: slant=${fontStyle.slant??0}° weight=${fontStyle.boldness??100}% roughness=${fontStyle.roughness??0} randomness=${fontStyle.randomness??0}`, 4))
 
   // ── Per-render PRNG: สุ่ม variant ที่จะ bake เป็น Unicode glyph ────────────
   // เนื่องจาก opentype.js 1.3.x serialize GSUB LookupType 6 ไม่ได้ (calt ไม่ทำงาน)
@@ -469,7 +543,12 @@ export async function compileFontBuffer(glyphMap, fontName = FONT_NAME, onProgre
     return (_rs >>> 0) / 4294967296
   }
   // ฟังก์ชันสุ่มเลือก variant: 0=default, 1=alt1, 2=alt2
-  function pickVariant() { return Math.floor(_rrand() * 3) }
+  const variantCount = [0, 0, 0]
+  function pickVariant() {
+    const v = Math.floor(_rrand() * 3)
+    variantCount[v]++
+    return v
+  }
 
   // opentype.js is already imported — no CDN needed
   addLog(emit('opentype.js loaded (local package ✓)', 6))
@@ -530,13 +609,22 @@ export async function compileFontBuffer(glyphMap, fontName = FONT_NAME, onProgre
 
       // ส่ง glyphMeta จาก Step 3 เพื่อให้ BASELINE_SHIFT คำนวณถูกต้องต่อตัว
       const glyphMeta = data.meta || {}
-      const defCmds  = svgPathToOTCommands(defPath, cp, glyphMeta)
-      const alt1Cmds = validateSvgPath(alt1Path).valid
+      const _defCmdsRaw  = svgPathToOTCommands(defPath, cp, glyphMeta)
+      const _alt1CmdsRaw = validateSvgPath(alt1Path).valid
         ? svgPathToOTCommands(alt1Path, cp, glyphMeta)
-        : defCmds
-      const alt2Cmds = validateSvgPath(alt2Path).valid
+        : _defCmdsRaw
+      const _alt2CmdsRaw = validateSvgPath(alt2Path).valid
         ? svgPathToOTCommands(alt2Path, cp, glyphMeta)
-        : defCmds
+        : _defCmdsRaw
+
+      // Apply per-variant style noise:
+      //   default → fontStyle ตรงๆ (no extra noise)
+      //   alt1    → fontStyle + micro-noise seed A
+      //   alt2    → fontStyle + micro-noise seed B
+      // ทำให้แต่ละ variant ดูต่างกันเล็กน้อย เหมือนเขียนซ้ำด้วยมือจริง
+      const defCmds  = applyStyleNoise(_defCmdsRaw,  fontStyle, _rrand)
+      const alt1Cmds = applyStyleNoise(_alt1CmdsRaw, fontStyle, _rrand)
+      const alt2Cmds = applyStyleNoise(_alt2CmdsRaw, fontStyle, _rrand)
 
       // ── สุ่มเลือก variant ที่จะ bake เป็น Unicode glyph โดยตรง ─────────
       // opentype.js 1.3.x serialize GSUB LookupType 6 (calt) ไม่ได้ → ใช้วิธีนี้แทน
@@ -604,6 +692,7 @@ export async function compileFontBuffer(glyphMap, fontName = FONT_NAME, onProgre
   }
 
   addLog(emit(`✓ glyphs built: ${otGlyphs.length - 2}  skipped: ${skipped.length}`, 68))
+  addLog(emit(`🎲 variant mix: ${variantCount[0]}× .default  |  ${variantCount[1]}× .alt1  |  ${variantCount[2]}× .alt2`, 68, 'success'))
   if (skipped.length > 0) {
     addLog(emit(`skipped glyphs: ${skipped.map(s => s.ch).join(' ')}`, 68, 'warn'))
   }

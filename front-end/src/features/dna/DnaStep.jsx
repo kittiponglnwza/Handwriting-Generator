@@ -36,6 +36,30 @@ import { ExportButtons }   from './ExportButtons.jsx'
 // ─── Design tokens ─────────────────────────────────────────────────────────────
 const FONT_NAME = 'MyHandwriting'
 
+const DEFAULT_STYLE  = { roughness: 30, neatness: 50, slant: 0, boldness: 100, randomness: 40 }
+const VARIANT_KEYS   = ['default', 'alt1', 'alt2']
+const STORAGE_KEY    = 'dna_variant_styles_v1'
+
+function loadVariantStyles() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (VARIANT_KEYS.every(k => parsed[k])) return parsed
+  } catch {}
+  return null
+}
+function saveVariantStyles(styles) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(styles)) } catch {}
+}
+function makeDefaultVariantStyles() {
+  return {
+    default: { ...DEFAULT_STYLE },
+    alt1:    { ...DEFAULT_STYLE, slant: 5,  roughness: 40 },
+    alt2:    { ...DEFAULT_STYLE, slant: 10, roughness: 60, randomness: 60 },
+  }
+}
+
 // Log level → colour
 const LOG_COLORS = {
   info:    C.inkMd,
@@ -226,7 +250,7 @@ function SkippedGlyphsPanel({ skipped }) {
 }
 
 /** Live font preview textarea */
-function FontPreviewPane({ fontName, ttfBuffer }) {
+function FontPreviewPane({ fontName, ttfBuffer, buildSeed }) {
   const [previewText, setPreviewText] = useState(
 `\nMy name is Krittipong. I am a Computer Science student at King Mongkut's University of Technology North Bangkok. I enjoy coding, building projects, and learning new technologies. I have experience in robotics competitions and won several awards. My goal is to improve my programming skills and create successful projects in the future. I am hardworking, creative, and always ready to learn something new.
 
@@ -243,8 +267,8 @@ This is TopZ's project
   const [fontSize, setFontSize] = useState(42)
   const [fontLoaded, setFontLoaded] = useState(false)
   const [bgMode, setBgMode] = useState('white')
-  const fontStyleId = `font-preview-${fontName.replace(/\s+/g, '-')}`
-  const fontFamily  = `'${fontName}-Preview'`
+  const fontStyleId = `font-preview-${fontName.replace(/\s+/g, '-')}-${(buildSeed ?? 0).toString(36).slice(2, 8)}`
+  const fontFamily  = `'${fontName}-${(buildSeed ?? 0).toString(36).slice(2, 8)}'`
 
   useEffect(() => {
     if (!ttfBuffer) { setFontLoaded(false); return }
@@ -254,10 +278,10 @@ This is TopZ's project
     const url   = URL.createObjectURL(blob)
     const style = document.createElement('style')
     style.id    = fontStyleId
-    style.textContent = `@font-face { font-family: '${fontName}-Preview'; src: url('${url}') format('truetype'); font-display: block; }`
+    style.textContent = `@font-face { font-family: ${fontFamily}; src: url('${url}') format('truetype'); font-display: block; }`
     document.head.appendChild(style)
     if (typeof FontFace !== 'undefined') {
-      const ff = new FontFace(`${fontName}-Preview`, `url('${url}')`, { display: 'block' })
+      const ff = new FontFace(fontFamily.replace(/'/g, ''), `url('${url}')`, { display: 'block' })
       ff.load().then(() => { document.fonts.add(ff); setFontLoaded(true) })
         .catch(() => setTimeout(() => setFontLoaded(true), 300))
     } else {
@@ -417,6 +441,27 @@ export default function DnaControls({ glyphs = [], fontStyle, onFontStyleChange,
   const [debugChars,   setDebugChars]   = useState('mn')
   const [selectedVariant, setSelectedVariant] = useState('default')
 
+  // Per-variant font styles — persisted to localStorage
+  const [variantStyles, setVariantStyles] = useState(() => loadVariantStyles() ?? makeDefaultVariantStyles())
+
+  const activeVariantStyle = variantStyles[selectedVariant] ?? DEFAULT_STYLE
+
+  const handleVariantStyleChange = (key, value) => {
+    setVariantStyles(prev => {
+      const next = { ...prev, [selectedVariant]: { ...prev[selectedVariant], [key]: value } }
+      saveVariantStyles(next)
+      return next
+    })
+  }
+
+  const handleResetVariantStyle = () => {
+    setVariantStyles(prev => {
+      const next = { ...prev, [selectedVariant]: { ...DEFAULT_STYLE } }
+      saveVariantStyles(next)
+      return next
+    })
+  }
+
   const hasGlyphs = glyphs.length > 0
   const [buildSeed, setBuildSeed] = useState(() => Math.random())
   const glyphMap   = useMemo(() => hasGlyphs ? buildGlyphMap(glyphs, buildSeed) : new Map(), [glyphs, hasGlyphs, buildSeed])
@@ -440,6 +485,9 @@ export default function DnaControls({ glyphs = [], fontStyle, onFontStyleChange,
   const fontStyleRef = useRef(fontStyle)
   useEffect(() => { fontStyleRef.current = fontStyle }, [fontStyle])
 
+  const variantStylesRef = useRef(variantStyles)
+  useEffect(() => { variantStylesRef.current = variantStyles }, [variantStyles])
+
   // handleBuild ref — ให้ useEffects เรียกได้โดยไม่ต้องใส่ handleBuild ใน deps
   const handleBuildRef = useRef(null)
 
@@ -460,7 +508,11 @@ export default function DnaControls({ glyphs = [], fontStyle, onFontStyleChange,
     try {
       await new Promise(r => setTimeout(r, 60))
 
-      const result = await compileFontBuffer(glyphMap, fontName, onProgress, newSeed, fontStyleRef.current)
+      // Build glyphMap with newSeed directly here — do NOT rely on useMemo
+      // because React state update (setBuildSeed) won't flush before this line
+      const freshGlyphMap = buildGlyphMap(glyphs, newSeed)
+
+      const result = await compileFontBuffer(freshGlyphMap, fontName, onProgress, newSeed, fontStyleRef.current, variantStylesRef.current)
       const {
         ttfBuffer, woffBuffer, glyphCount,
         skipped, buildLog: newLog, glyphInfo, featureStatus: fStatus,
@@ -469,9 +521,9 @@ export default function DnaControls({ glyphs = [], fontStyle, onFontStyleChange,
 
       setBuildLog(newLog)
 
-      const exportGlyphMap = buildExportGlyphMap(glyphMap, glyphInfo)
+      const exportGlyphMap = buildExportGlyphMap(freshGlyphMap, glyphInfo)
       const metadata       = buildMetadata({
-        fontName, glyphMap, glyphInfo, glyphCount,
+        fontName, glyphMap: freshGlyphMap, glyphInfo, glyphCount,
         skipped, featureStatus: fStatus,
       })
 
@@ -785,18 +837,17 @@ export default function DnaControls({ glyphs = [], fontStyle, onFontStyleChange,
 
                     {/* 3 variant cards — horizontal, each clickable */}
                     {(() => {
-                      // Real-time visual preview of fontStyle via SVG transforms
-                      const slant     = fontStyle?.slant      ?? 0    // -30..30 deg → skewX
-                      const boldness  = fontStyle?.boldness   ?? 100  // 70..150 % → strokeWidth scale
-                      const roughness = fontStyle?.roughness  ?? 0    // 0..100 → jitter opacity hint
-                      const skewX     = -slant * 0.6                  // CSS skewX (inverted so right = italic)
-                      const strokeW   = 4 * (boldness / 100)          // base strokeWidth 4, scaled by weight
-                      const opacity   = 1 - (roughness / 100) * 0.25  // subtle fade hint for roughness
+                      // Each card uses its OWN variant style for real-time preview
                       return (
                         <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
                           {VARIANTS.map(({ key, svgPath, label, desc }) => {
                             const isActive = selectedVariant === key
-                            const valid = validateSvgPath(svgPath).valid
+                            const valid    = validateSvgPath(svgPath).valid
+                            // Each card reads its OWN variant style
+                            const vs       = variantStyles[key] ?? DEFAULT_STYLE
+                            const skewX    = -(vs.slant ?? 0) * 0.6
+                            const strokeW  = 4 * ((vs.boldness ?? 100) / 100)
+                            const opacity  = 1 - ((vs.roughness ?? 0) / 100) * 0.25
                             return (
                               <div key={key}
                                 onClick={() => setSelectedVariant(key)}
@@ -820,23 +871,12 @@ export default function DnaControls({ glyphs = [], fontStyle, onFontStyleChange,
                                   {valid ? (
                                     <svg
                                       viewBox={computeViewBox(svgPath)}
-                                      style={{
-                                        width: '90%', height: '90%',
-                                        transform: `skewX(${skewX}deg)`,
-                                        transition: 'transform 0.1s',
-                                        opacity,
-                                      }}
+                                      style={{ width: '90%', height: '90%', transform: `skewX(${skewX}deg)`, transition: 'transform 0.1s', opacity }}
                                       preserveAspectRatio="xMidYMid meet"
                                     >
-                                      <path
-                                        d={svgPath}
-                                        fill="none"
-                                        stroke={C.ink}
-                                        strokeWidth={strokeW}
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        style={{ transition: 'stroke-width 0.1s' }}
-                                      />
+                                      <path d={svgPath} fill="none" stroke={C.ink} strokeWidth={strokeW}
+                                        strokeLinecap="round" strokeLinejoin="round"
+                                        style={{ transition: 'stroke-width 0.1s' }} />
                                     </svg>
                                   ) : (
                                     <span style={{ fontSize: 26, color: C.inkMd }}>{previewChar}</span>
@@ -864,9 +904,14 @@ export default function DnaControls({ glyphs = [], fontStyle, onFontStyleChange,
               })()}
             </div>
 
-            {/* RIGHT — Font Style sliders */}
+            {/* RIGHT — Font Style sliders (per variant) */}
             <div>
-              <FontStylePanel fontStyle={fontStyle} onFontStyleChange={onFontStyleChange} />
+              <FontStylePanel
+                fontStyle={activeVariantStyle}
+                onFontStyleChange={handleVariantStyleChange}
+                variantLabel={selectedVariant}
+                onReset={handleResetVariantStyle}
+              />
             </div>
           </div>
         </div>
@@ -1051,9 +1096,11 @@ export default function DnaControls({ glyphs = [], fontStyle, onFontStyleChange,
       )}
 
       {/* Tab: Preview */}
-      <div style={{ display: activeTab === 'preview' ? 'block' : 'none', background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 14, padding: '24px 28px', marginBottom: 20 }}>
-        <FontPreviewPane fontName={fontName} ttfBuffer={buildResult?.ttfBuffer ?? null} />
-      </div>
+      {activeTab === 'preview' && (
+        <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 14, padding: '24px 28px', marginBottom: 20 }}>
+          <FontPreviewPane fontName={fontName} ttfBuffer={buildResult?.ttfBuffer ?? null} buildSeed={buildSeed} />
+        </div>
+      )}
 
       {/* Tab: Download */}
       {activeTab === 'download' && (

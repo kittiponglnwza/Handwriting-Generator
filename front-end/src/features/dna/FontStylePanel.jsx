@@ -9,7 +9,7 @@ const FONT_SLIDERS = [
   { key: 'randomness', label: 'Randomness', min: 0,   max: 100, unit: ''  },
 ]
 
-export function FontStylePanel({ fontStyle, onFontStyleChange }) {
+export function FontStylePanel({ fontStyle, onFontStyleChange, variantLabel, onReset }) {
   const [editingKey, setEditingKey] = useState(null)
   const [editingVal, setEditingVal] = useState('')
 
@@ -28,9 +28,25 @@ export function FontStylePanel({ fontStyle, onFontStyleChange }) {
       background: '#fff', borderRadius: 14, padding: '20px 24px',
       border: '1px solid #DDD8CE', boxShadow: '0 1px 4px rgba(44,36,22,0.07)',
     }}>
-      <p style={{ fontSize: 11, fontWeight: 600, color: '#8A7B62', marginBottom: 18, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-        Font Style
-      </p>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <p style={{ fontSize: 11, fontWeight: 600, color: '#8A7B62', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Font Style</p>
+          {variantLabel && (
+            <span style={{
+              fontSize: 10, fontFamily: 'monospace', fontWeight: 700,
+              background: '#2C2416', color: '#F0EBE0',
+              borderRadius: 5, padding: '2px 8px', letterSpacing: '0.05em',
+            }}>.{variantLabel}</span>
+          )}
+        </div>
+        {onReset && (
+          <button onClick={onReset} style={{
+            fontSize: 10, color: '#8A7B62', background: 'none', border: '1px solid #DDD8CE',
+            borderRadius: 6, padding: '2px 8px', cursor: 'pointer',
+            fontFamily: "'DM Sans', sans-serif",
+          }}>↺ reset</button>
+        )}
+      </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 32px' }}>
         {FONT_SLIDERS.map(({ key, label, min, max, unit }) => {
           const pct = ((fontStyle[key] - min) / (max - min)) * 100
