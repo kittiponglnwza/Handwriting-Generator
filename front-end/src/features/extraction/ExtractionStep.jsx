@@ -25,7 +25,6 @@ import QADashboard from "../../shared/debug/QADashboard.jsx"
 const TABS = [
   { id: "glyphs", label: "Glyphs" },
   { id: "pages", label: "Page Debug" },
-  { id: "qa", label: "QA" },
 ]
 
 // ─── Main Component ────────────────────────────────────────────────────────────
@@ -243,7 +242,17 @@ export default function ExtractionStep({ parsedFile, onGlyphsUpdate, pipelineMac
             </p>
           )}
           {status !== "running" && glyphs.length > 0 && (
-            <GridDebugOverlay glyphs={glyphs} />
+            <>
+              <QADashboard
+                glyphs={glyphs}
+                qaReport={qaReport}
+                onGlyphSelect={(g) => console.log("[QA] selected:", g)}
+                onRetryExtraction={runExtraction}
+              />
+              <div style={{ marginTop: 24 }}>
+                <GridDebugOverlay glyphs={glyphs} />
+              </div>
+            </>
           )}
         </div>
       )}
@@ -257,14 +266,6 @@ export default function ExtractionStep({ parsedFile, onGlyphsUpdate, pipelineMac
         />
       )}
 
-      {tab === "qa" && (
-        <QADashboard
-          glyphs={glyphs}
-          qaReport={qaReport}
-          onGlyphSelect={(g) => console.log("[QA] selected:", g)}
-          onRetryExtraction={runExtraction}
-        />
-      )}
     </div>
   )
 }
