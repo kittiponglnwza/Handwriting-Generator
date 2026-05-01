@@ -413,8 +413,9 @@ export default function DnaControls({ glyphs = [], fontStyle, onFontStyleChange,
   const [buildLog,     setBuildLog]     = useState([])
   const [showLog,      setShowLog]      = useState(false)
   const [fontName,     setFontName]     = useState(FONT_NAME)
-  const [debugMode,    setDebugMode]    = useState(false)    // ← debug m/n highlight
-  const [debugChars,   setDebugChars]   = useState('mn')     // ← chars to highlight
+  const [debugMode,    setDebugMode]    = useState(false)
+  const [debugChars,   setDebugChars]   = useState('mn')
+  const [selectedVariant, setSelectedVariant] = useState('default')
 
   const hasGlyphs = glyphs.length > 0
   const [buildSeed, setBuildSeed] = useState(() => Math.random())
@@ -435,39 +436,13 @@ export default function DnaControls({ glyphs = [], fontStyle, onFontStyleChange,
   const buildStateRef = useRef(buildState)
   useEffect(() => { buildStateRef.current = buildState }, [buildState])
 
-  // Auto-build when glyphs are ready
-  useEffect(() => {
-    if (hasGlyphs && buildStateRef.current === 'idle') {
-      const t = setTimeout(() => {
-        if (buildStateRef.current === 'idle') handleBuild()
-      }, 100)
-      return () => clearTimeout(t)
-    }
-  }, [hasGlyphs])
+  // fontStyle ref — อ่านค่าล่าสุดใน handleBuild โดยไม่ต้องใส่ใน deps
+  const fontStyleRef = useRef(fontStyle)
+  useEffect(() => { fontStyleRef.current = fontStyle }, [fontStyle])
 
-  // Re-fire onFontReady when component mounts and build is done
-  useEffect(() => {
-    if (buildState === 'done' && buildResult?.ttfBuffer) {
-      onFontReady?.({ ttfBuffer: buildResult.ttfBuffer, puaMap: buildResult.puaMap ?? new Map() })
-    }
-  }, [])
+  // handleBuild ref — ให้ useEffects เรียกได้โดยไม่ต้องใส่ handleBuild ใน deps
+  const handleBuildRef = useRef(null)
 
-  const previewData = useMemo(() => {
-    if (!previewChar || !glyphMap.has(previewChar)) return null
-    return glyphMap.get(previewChar)
-  }, [previewChar, glyphMap])
-
-  const previewGlyph = useMemo(() => {
-    if (!previewChar) return null
-    return glyphs.find(g =>
-      g.ch === previewChar &&
-      (g.status === 'ok' || ['excellent', 'good', 'acceptable'].includes(g._visionStatus))
-    ) ?? null
-  }, [previewChar, glyphs])
-
-  const featureStatus = buildResult?.featureStatus ?? null
-
-  // Build
   const handleBuild = useCallback(async () => {
     if (!hasGlyphs || buildStateRef.current === 'building') return
     const newSeed = Math.random()
@@ -485,7 +460,7 @@ export default function DnaControls({ glyphs = [], fontStyle, onFontStyleChange,
     try {
       await new Promise(r => setTimeout(r, 60))
 
-      const result = await compileFontBuffer(glyphMap, fontName, onProgress, newSeed)
+      const result = await compileFontBuffer(glyphMap, fontName, onProgress, newSeed, fontStyleRef.current)
       const {
         ttfBuffer, woffBuffer, glyphCount,
         skipped, buildLog: newLog, glyphInfo, featureStatus: fStatus,
@@ -519,6 +494,49 @@ export default function DnaControls({ glyphs = [], fontStyle, onFontStyleChange,
       ])
     }
   }, [hasGlyphs, glyphMap, fontName])
+
+  handleBuildRef.current = handleBuild
+
+  // Auto-build when glyphs are ready
+  useEffect(() => {
+    if (hasGlyphs && buildStateRef.current === 'idle') {
+      const t = setTimeout(() => {
+        if (buildStateRef.current === 'idle') handleBuildRef.current?.()
+      }, 100)
+      return () => clearTimeout(t)
+    }
+  }, [hasGlyphs])
+
+  // Re-fire onFontReady when component mounts and build is done
+  useEffect(() => {
+    if (buildState === 'done' && buildResult?.ttfBuffer) {
+      onFontReady?.({ ttfBuffer: buildResult.ttfBuffer, puaMap: buildResult.puaMap ?? new Map() })
+    }
+  }, [])
+
+  // Auto-rebuild when fontStyle changes (debounced 600ms)
+  useEffect(() => {
+    if (!hasGlyphs || !fontStyle) return
+    const t = setTimeout(() => {
+      if (buildStateRef.current !== 'building') handleBuildRef.current?.()
+    }, 600)
+    return () => clearTimeout(t)
+  }, [fontStyle, hasGlyphs])
+
+  const previewData = useMemo(() => {
+    if (!previewChar || !glyphMap.has(previewChar)) return null
+    return glyphMap.get(previewChar)
+  }, [previewChar, glyphMap])
+
+  const previewGlyph = useMemo(() => {
+    if (!previewChar) return null
+    return glyphs.find(g =>
+      g.ch === previewChar &&
+      (g.status === 'ok' || ['excellent', 'good', 'acceptable'].includes(g._visionStatus))
+    ) ?? null
+  }, [previewChar, glyphs])
+
+  const featureStatus = buildResult?.featureStatus ?? null
 
   // Downloads
   const handleDownloadTTF  = () => downloadBuffer(buildResult.ttfBuffer,  `${fontName}.ttf`,  'font/ttf')
@@ -766,39 +784,72 @@ export default function DnaControls({ glyphs = [], fontStyle, onFontStyleChange,
                     )}
 
                     {/* 3 variant cards — horizontal, each clickable */}
-                    <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
-                      {VARIANTS.map(({ key, svgPath, label, desc }) => {
-                        const isActive = key === 'default'
-                        const valid = validateSvgPath(svgPath).valid
-                        return (
-                          <div key={key} style={{
-                            flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
-                            background: isActive ? C.sageLt : C.bgMuted,
-                            border: `2px solid ${isActive ? C.sage : C.border}`,
-                            borderRadius: 12, padding: '10px 8px',
-                            cursor: 'default', transition: 'all 0.15s',
-                          }}>
-                            <div style={{
-                              width: 60, height: 60, background: '#fff',
-                              border: `1px solid ${isActive ? C.sageMd : C.borderMd}`,
-                              borderRadius: 8,
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              overflow: 'hidden',
-                            }}>
-                              {valid ? (
-                                <svg viewBox={computeViewBox(svgPath)} style={{ width: '90%', height: '90%' }} preserveAspectRatio="xMidYMid meet">
-                                  <path d={svgPath} fill="none" stroke={C.ink} strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                              ) : (
-                                <span style={{ fontSize: 26, color: C.inkMd }}>{previewChar}</span>
-                              )}
-                            </div>
-                            <span style={{ fontSize: 9, fontFamily: 'monospace', color: isActive ? C.sage : C.inkMd, fontWeight: isActive ? 700 : 400 }}>{label}</span>
-                            <span style={{ fontSize: 9, color: C.inkLt, textAlign: 'center' }}>{desc}</span>
-                          </div>
-                        )
-                      })}
-                    </div>
+                    {(() => {
+                      // Real-time visual preview of fontStyle via SVG transforms
+                      const slant     = fontStyle?.slant      ?? 0    // -30..30 deg → skewX
+                      const boldness  = fontStyle?.boldness   ?? 100  // 70..150 % → strokeWidth scale
+                      const roughness = fontStyle?.roughness  ?? 0    // 0..100 → jitter opacity hint
+                      const skewX     = -slant * 0.6                  // CSS skewX (inverted so right = italic)
+                      const strokeW   = 4 * (boldness / 100)          // base strokeWidth 4, scaled by weight
+                      const opacity   = 1 - (roughness / 100) * 0.25  // subtle fade hint for roughness
+                      return (
+                        <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+                          {VARIANTS.map(({ key, svgPath, label, desc }) => {
+                            const isActive = selectedVariant === key
+                            const valid = validateSvgPath(svgPath).valid
+                            return (
+                              <div key={key}
+                                onClick={() => setSelectedVariant(key)}
+                                style={{
+                                  flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                                  background: isActive ? C.sageLt : C.bgMuted,
+                                  border: `2px solid ${isActive ? C.sage : C.border}`,
+                                  borderRadius: 12, padding: '10px 8px',
+                                  cursor: 'pointer', transition: 'border-color 0.15s, background 0.15s',
+                                }}
+                                onMouseEnter={e => { if (!isActive) e.currentTarget.style.borderColor = C.borderMd }}
+                                onMouseLeave={e => { if (!isActive) e.currentTarget.style.borderColor = C.border }}
+                              >
+                                <div style={{
+                                  width: 60, height: 60, background: '#fff',
+                                  border: `1px solid ${isActive ? C.sageMd : C.borderMd}`,
+                                  borderRadius: 8,
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  overflow: 'hidden',
+                                }}>
+                                  {valid ? (
+                                    <svg
+                                      viewBox={computeViewBox(svgPath)}
+                                      style={{
+                                        width: '90%', height: '90%',
+                                        transform: `skewX(${skewX}deg)`,
+                                        transition: 'transform 0.1s',
+                                        opacity,
+                                      }}
+                                      preserveAspectRatio="xMidYMid meet"
+                                    >
+                                      <path
+                                        d={svgPath}
+                                        fill="none"
+                                        stroke={C.ink}
+                                        strokeWidth={strokeW}
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        style={{ transition: 'stroke-width 0.1s' }}
+                                      />
+                                    </svg>
+                                  ) : (
+                                    <span style={{ fontSize: 26, color: C.inkMd }}>{previewChar}</span>
+                                  )}
+                                </div>
+                                <span style={{ fontSize: 9, fontFamily: 'monospace', color: isActive ? C.sage : C.inkMd, fontWeight: isActive ? 700 : 400 }}>{label}</span>
+                                <span style={{ fontSize: 9, color: C.inkLt, textAlign: 'center' }}>{desc}</span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )
+                    })()}
 
                     {/* calt rotation preview — compact single line */}
                     <div style={{ background: '#1E1A14', borderRadius: 8, padding: '8px 12px', fontFamily: 'monospace', fontSize: 10, color: '#7CC4B0', lineHeight: 1.9 }}>
