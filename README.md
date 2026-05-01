@@ -95,28 +95,7 @@ src/
     └── thaiRenderingAudit.js
 ```
 
----
 
-## ไฟล์ที่แก้ไขแล้ว (session นี้)
-
-| ไฟล์ | สิ่งที่แก้ |
-|------|-----------|
-| `app/main.jsx` | เปลี่ยน script src เป็น `/src/app/main.jsx` |
-| `shared/debug/QADashboard.jsx` | แก้ import path `../../styles/colors` |
-| `features/extraction/ExtractionStep.jsx` | **Rebuilt** — ไฟล์ต้นฉบับถูกตัดขาด |
-| `features/dna/DnaStep.jsx` | เพิ่ม `computeViewBox()` แก้ glyph เกินกรอบ |
-
----
-
-## Known Issues ที่ยังเหลือ
-
-| ปัญหา | ไฟล์ | สาเหตุ |
-|-------|------|--------|
-| `CornerAnchorDetection` crash | `engine/vision/CornerAnchorDetection.js:99` | `imageData.data` undefined → กระทบ calibration แต่ fallback ได้ |
-| cMapUrl warning | `features/upload/UploadStep.jsx` | pdfjs-dist ต้องการ cMap สำหรับ Thai font |
-| jsQR blocked | CDN jsdelivr | Edge browser Tracking Prevention block |
-
----
 
 ## Data Flow
 
