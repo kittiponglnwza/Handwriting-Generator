@@ -249,10 +249,10 @@ function SkippedGlyphsPanel({ skipped }) {
   )
 }
 
-/** Live font preview textarea */
-function FontPreviewPane({ fontName, ttfBuffer, buildSeed }) {
+/** Live font preview textarea with PUA rotation for real handwriting variation */
+function FontPreviewPane({ fontName, ttfBuffer, buildSeed, puaMap }) {
   const [previewText, setPreviewText] = useState(
-`\nMy name is Krittipong. I am a Computer Science student at King Mongkut's University of Technology North Bangkok. I enjoy coding, building projects, and learning new technologies. I have experience in robotics competitions and won several awards. My goal is to improve my programming skills and create successful projects in the future. I am hardworking, creative, and always ready to learn something new.
+`My name is Krittipong. I am a Computer Science student at King Mongkut's University of Technology North Bangkok. I enjoy coding, building projects, and learning new technologies. I have experience in robotics competitions and won several awards. My goal is to improve my programming skills and create successful projects in the future. I am hardworking, creative, and always ready to learn something new.
 
 ABCDEFGHIJKLMNOPQRSTUVWXYZ
 abcdefghijklmnopqrstuvwxyz
@@ -260,15 +260,17 @@ abcdefghijklmnopqrstuvwxyz
 0123456789
 !@#$%^&*()-+=
 
-This is TopZ's project
-
-ตอนนี้ยังไม่มีภาษาไทย`
+This is TopZ's project`
 )
   const [fontSize, setFontSize] = useState(42)
   const [fontLoaded, setFontLoaded] = useState(false)
   const [bgMode, setBgMode] = useState('white')
-  const fontStyleId = `font-preview-${fontName.replace(/\s+/g, '-')}-${(buildSeed ?? 0).toString(36).slice(2, 8)}`
-  const fontFamily  = `'${fontName}-${(buildSeed ?? 0).toString(36).slice(2, 8)}'`
+
+  // seed-based font family name เพื่อกัน browser font cache ระหว่าง builds
+  const seedTag    = (buildSeed ?? 0).toString(36).slice(2, 8)
+  const fontStyleId = `font-preview-${fontName.replace(/\s+/g, '-')}-${seedTag}`
+  const fontFamilyName = `${fontName}-${seedTag}`
+  const fontFamily = `'${fontFamilyName}'`
 
   useEffect(() => {
     if (!ttfBuffer) { setFontLoaded(false); return }
@@ -278,26 +280,45 @@ This is TopZ's project
     const url   = URL.createObjectURL(blob)
     const style = document.createElement('style')
     style.id    = fontStyleId
-    style.textContent = `@font-face { font-family: ${fontFamily}; src: url('${url}') format('truetype'); font-display: block; }`
+    style.textContent = `@font-face { font-family: '${fontFamilyName}'; src: url('${url}') format('truetype'); font-display: block; }`
     document.head.appendChild(style)
     if (typeof FontFace !== 'undefined') {
-      const ff = new FontFace(fontFamily.replace(/'/g, ''), `url('${url}')`, { display: 'block' })
+      const ff = new FontFace(fontFamilyName, `url('${url}')`, { display: 'block' })
       ff.load().then(() => { document.fonts.add(ff); setFontLoaded(true) })
         .catch(() => setTimeout(() => setFontLoaded(true), 300))
     } else {
       setTimeout(() => setFontLoaded(true), 300)
     }
     return () => { style.remove(); URL.revokeObjectURL(url); setFontLoaded(false) }
-  }, [ttfBuffer, fontName])
+  }, [ttfBuffer, fontFamilyName])
+
+  // ── PUA rotation: แปลง plain text → text ที่ใช้ PUA codepoints สำหรับ variation ──
+  // แทนที่ตัวอักษรซ้ำด้วย alt1 / alt2 variants เพื่อให้ดูเหมือน handwriting จริง
+  // rotation pattern: default → alt1 → alt2 → default → ...
+  //   (counter ต่อตัวอักษร ไม่ใช่ global เพื่อให้ natural)
+  const applyPuaRotation = (text, map) => {
+    if (!map || map.size === 0) return text
+    const counters = {}  // ch → ครั้งที่เห็น (0-indexed)
+    let result = ''
+    for (const ch of text) {
+      const entry = map.get(ch)
+      if (!entry) { result += ch; continue }
+      const count = counters[ch] ?? 0
+      counters[ch] = count + 1
+      const mod = count % 3
+      if (mod === 0) result += ch  // default = Unicode จริง
+      else if (mod === 1) result += String.fromCodePoint(entry.alt1)
+      else result += String.fromCodePoint(entry.alt2)
+    }
+    return result
+  }
+
+  const rotatedText = fontLoaded && puaMap
+    ? applyPuaRotation(previewText, puaMap)
+    : previewText
 
   const bgStyles = {
     white: { background: '#FEFCF8', color: '#1A1410' },
-    ruled: {
-      background: '#FEFCF8',
-      backgroundImage: `repeating-linear-gradient(transparent, transparent ${fontSize * 1.6 - 1}px, #C8D8E8 ${fontSize * 1.6 - 1}px, #C8D8E8 ${fontSize * 1.6}px)`,
-      backgroundPositionY: '14px',
-      color: '#1A1410',
-    },
     dark:  { background: '#1A1410', color: '#F0EBE0' },
   }
 
@@ -314,8 +335,18 @@ This is TopZ's project
           {fontLoaded ? '✓ Font loaded' : '⟳ Loading…'}
         </span>
 
+        {fontLoaded && puaMap && (
+          <span style={{
+            fontSize: 10, padding: '2px 8px', borderRadius: 5,
+            background: '#EEF5FB', color: '#3A6A9A',
+            border: '1px solid #B8D4EC', fontFamily: 'monospace',
+          }}>
+            🎲 variant rotation ON ({puaMap.size} chars)
+          </span>
+        )}
+
         <div style={{ display: 'flex', background: '#F2EDE4', borderRadius: 8, padding: 3, gap: 2 }}>
-          {[['white','☀'],  ['dark','🌙']].map(([m, icon]) => (
+          {[['white','☀'], ['dark','🌙']].map(([m, icon]) => (
             <button key={m} onClick={() => setBgMode(m)} style={{
               background: bgMode === m ? '#fff' : 'transparent',
               border: bgMode === m ? '1px solid #DDD8CE' : '1px solid transparent',
@@ -337,26 +368,62 @@ This is TopZ's project
         </div>
       </div>
 
-      <textarea
-        value={previewText}
-        onChange={e => setPreviewText(e.target.value)}
-        style={{
-          width: '100%', boxSizing: 'border-box',
-          minHeight: 420, resize: 'vertical',
-          fontFamily: fontLoaded ? `${fontFamily}, cursive` : 'cursive',
-          fontSize,
-          lineHeight: 1.6,
-          padding: '20px 24px',
-          border: `1.5px solid ${fontLoaded ? '#A8D5B5' : '#DDD8CE'}`,
-          borderRadius: 12,
-          ...bgStyles[bgMode],
-          outline: 'none',
-          transition: 'border-color 0.2s, background 0.2s',
-          boxShadow: '0 2px 12px rgba(44,36,22,0.06)',
-        }}
-        placeholder="Type here to preview the font…"
-        spellCheck={false}
-      />
+      {/* Edit area: textarea สำหรับ input, div สำหรับ render font จริง */}
+      <div style={{ position: 'relative' }}>
+        {/* Invisible textarea สำหรับรับ input */}
+        <textarea
+          value={previewText}
+          onChange={e => setPreviewText(e.target.value)}
+          style={{
+            position: 'absolute', top: 0, left: 0,
+            width: '100%', height: '100%', boxSizing: 'border-box',
+            opacity: fontLoaded ? 0 : 1,  // ซ่อนเมื่อ font โหลดแล้ว
+            resize: 'none', border: 'none', outline: 'none',
+            fontFamily: 'monospace', fontSize, lineHeight: 1.6,
+            padding: '20px 24px',
+            background: 'transparent', color: 'transparent',
+            caretColor: bgMode === 'dark' ? '#F0EBE0' : '#1A1410',
+            zIndex: 2,
+          }}
+          spellCheck={false}
+        />
+        {/* Font display layer */}
+        <div
+          style={{
+            width: '100%', boxSizing: 'border-box',
+            minHeight: 420,
+            fontFamily: fontLoaded ? `${fontFamily}, cursive` : 'cursive',
+            fontSize, lineHeight: 1.6,
+            padding: '20px 24px',
+            border: `1.5px solid ${fontLoaded ? '#A8D5B5' : '#DDD8CE'}`,
+            borderRadius: 12,
+            ...bgStyles[bgMode],
+            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+            overflowWrap: 'break-word',
+            boxShadow: '0 2px 12px rgba(44,36,22,0.06)',
+            pointerEvents: 'none',
+            userSelect: 'none',
+          }}
+        >
+          {rotatedText || <span style={{ opacity: 0.3 }}>Type here to preview the font…</span>}
+        </div>
+        {/* Click-to-edit overlay when font loaded */}
+        {fontLoaded && (
+          <textarea
+            value={previewText}
+            onChange={e => setPreviewText(e.target.value)}
+            style={{
+              position: 'absolute', top: 0, left: 0,
+              width: '100%', height: '100%', boxSizing: 'border-box',
+              opacity: 0, resize: 'none',
+              border: 'none', outline: 'none', background: 'transparent',
+              fontSize, lineHeight: 1.6, padding: '20px 24px',
+              cursor: 'text', zIndex: 3,
+            }}
+            spellCheck={false}
+          />
+        )}
+      </div>
 
       {!ttfBuffer && (
         <p style={{ fontSize: 11, color: C.inkLt, marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -508,8 +575,7 @@ export default function DnaControls({ glyphs = [], fontStyle, onFontStyleChange,
     try {
       await new Promise(r => setTimeout(r, 60))
 
-      // Build glyphMap with newSeed directly here — do NOT rely on useMemo
-      // because React state update (setBuildSeed) won't flush before this line
+      // build freshGlyphMap ด้วย newSeed ตรงๆ — ไม่ใช้ useMemo ที่ยัง stale
       const freshGlyphMap = buildGlyphMap(glyphs, newSeed)
 
       const result = await compileFontBuffer(freshGlyphMap, fontName, onProgress, newSeed, fontStyleRef.current, variantStylesRef.current)
@@ -1098,7 +1164,12 @@ export default function DnaControls({ glyphs = [], fontStyle, onFontStyleChange,
       {/* Tab: Preview */}
       {activeTab === 'preview' && (
         <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 14, padding: '24px 28px', marginBottom: 20 }}>
-          <FontPreviewPane fontName={fontName} ttfBuffer={buildResult?.ttfBuffer ?? null} buildSeed={buildSeed} />
+          <FontPreviewPane
+            fontName={fontName}
+            ttfBuffer={buildResult?.ttfBuffer ?? null}
+            buildSeed={buildSeed}
+            puaMap={buildResult?.puaMap ?? null}
+          />
         </div>
       )}
 

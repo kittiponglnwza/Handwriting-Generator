@@ -519,7 +519,7 @@ function applyStyleNoise(cmds, fontStyle = {}, rng = Math.random) {
  *   featureStatus: object,
  * }>}
  */
-export async function compileFontBuffer(glyphMap, fontName = FONT_NAME, onProgress, seed = Math.random(), fontStyle = {}) {
+export async function compileFontBuffer(glyphMap, fontName = FONT_NAME, onProgress, seed = Math.random(), fontStyle = {}, variantStyles = null) {
   const emit = (msg, pct, level = 'info') => {
     const entry = log(level, msg)
     onProgress?.(msg, pct, entry)
@@ -617,14 +617,15 @@ export async function compileFontBuffer(glyphMap, fontName = FONT_NAME, onProgre
         ? svgPathToOTCommands(alt2Path, cp, glyphMeta)
         : _defCmdsRaw
 
-      // Apply per-variant style noise:
-      //   default → fontStyle ตรงๆ (no extra noise)
-      //   alt1    → fontStyle + micro-noise seed A
-      //   alt2    → fontStyle + micro-noise seed B
-      // ทำให้แต่ละ variant ดูต่างกันเล็กน้อย เหมือนเขียนซ้ำด้วยมือจริง
-      const defCmds  = applyStyleNoise(_defCmdsRaw,  fontStyle, _rrand)
-      const alt1Cmds = applyStyleNoise(_alt1CmdsRaw, fontStyle, _rrand)
-      const alt2Cmds = applyStyleNoise(_alt2CmdsRaw, fontStyle, _rrand)
+      // Apply per-variant style — ถ้ามี variantStyles ให้ใช้ style แยกต่างหากต่อ variant
+      // ทำให้ default/alt1/alt2 มี slant/boldness/roughness ต่างกัน → เห็นความแตกต่างชัด
+      const styleDefault = (variantStyles?.default) ?? fontStyle
+      const styleAlt1    = (variantStyles?.alt1)    ?? fontStyle
+      const styleAlt2    = (variantStyles?.alt2)    ?? fontStyle
+
+      const defCmds  = applyStyleNoise(_defCmdsRaw,  styleDefault, _rrand)
+      const alt1Cmds = applyStyleNoise(_alt1CmdsRaw, styleAlt1,    _rrand)
+      const alt2Cmds = applyStyleNoise(_alt2CmdsRaw, styleAlt2,    _rrand)
 
       // ── สุ่มเลือก variant ที่จะ bake เป็น Unicode glyph โดยตรง ─────────
       // opentype.js 1.3.x serialize GSUB LookupType 6 (calt) ไม่ได้ → ใช้วิธีนี้แทน
@@ -806,18 +807,70 @@ export async function compileFontBuffer(glyphMap, fontName = FONT_NAME, onProgre
   // ── Feature status (for UI display) ───────────────────────────────────────
   const featureStatus = getFeatureStatus(glyphInfo)
 
+  // ── PUA map: เพิ่ม alt1/alt2 เป็น PUA codepoints ใน font ─────────────────
+  // ทำให้ FontPreviewPane สามารถ rotate "ooo" → U+006F U+E000 U+E001
+  // ต้องทำ ก่อน serialize TTF เพราะต้องเพิ่ม glyphs เข้า otGlyphs
+  const puaMap = new Map()
+  let puaBase = 0xE000
+  for (const [ch, info] of glyphInfo) {
+    const pua1 = puaBase, pua2 = puaBase + 1
+    puaBase += 2
+    if (info.alt1Index < otGlyphs.length) {
+      const src = otGlyphs[info.alt1Index]
+      otGlyphs.push(new opentype.Glyph({
+        name: `${src.name}.pua1`, unicode: pua1, unicodes: [pua1],
+        advanceWidth: src.advanceWidth, path: src.path,
+      }))
+    }
+    if (info.alt2Index < otGlyphs.length) {
+      const src = otGlyphs[info.alt2Index]
+      otGlyphs.push(new opentype.Glyph({
+        name: `${src.name}.pua2`, unicode: pua2, unicodes: [pua2],
+        advanceWidth: src.advanceWidth, path: src.path,
+      }))
+    }
+    puaMap.set(ch, { default: info.cp, alt1: pua1, alt2: pua2 })
+  }
+
+  // rebuild font with PUA glyphs included
+  const fontWithPua = new opentype.Font({
+    familyName: fontName, styleName: 'Regular',
+    unitsPerEm: UPM, ascender: ASCENDER, descender: DESCENDER,
+    glyphs: otGlyphs,
+  })
+  // copy over name/os2 tables
+  fontWithPua.names = font.names
+  if (font.tables.os2) fontWithPua.tables.os2 = font.tables.os2
+
+  // re-serialize with PUA glyphs
+  let ttfBufferFinal = ttfBuffer
+  try {
+    ttfBufferFinal = typeof fontWithPua.toArrayBuffer === 'function'
+      ? fontWithPua.toArrayBuffer()
+      : fontWithPua.toBuffer().buffer
+    if (ttfBufferFinal && !(ttfBufferFinal instanceof ArrayBuffer) && ttfBufferFinal.buffer) {
+      ttfBufferFinal = ttfBufferFinal.buffer.slice(ttfBufferFinal.byteOffset, ttfBufferFinal.byteOffset + ttfBufferFinal.byteLength)
+    }
+    addLog(emit(`✓ PUA font: ${(ttfBufferFinal.byteLength / 1024).toFixed(1)} KB  (${puaMap.size * 2} PUA glyphs)`, 98, 'info'))
+  } catch (e) {
+    addLog(emit(`⚠ PUA re-serialize failed (${e.message}) — using font without PUA`, 98, 'warn'))
+    ttfBufferFinal = ttfBuffer
+  }
+  const woffBufferFinal = ttfToWoff(ttfBufferFinal)
+
   addLog(emit('✅ Font build เสร็จสมบูรณ์', 100, 'success'))
 
   return {
-    ttfBuffer,
-    woffBuffer,
+    ttfBuffer: ttfBufferFinal,
+    woffBuffer: woffBufferFinal,
     glyphCount: otGlyphs.length,
     charCount:  glyphInfo.size,
     skipped,
     buildLog,
     glyphInfo,
     featureStatus,
-    font,
+    font: fontWithPua,
+    puaMap,
   }
 }
 
