@@ -30,8 +30,8 @@ const TABS = [
 // ─── Main Component ────────────────────────────────────────────────────────────
 export default function ExtractionStep({ parsedFile, onGlyphsUpdate, pipelineMachine, cachedGlyphs = [] }) {
   const [tab, setTab] = useState("glyphs")
-  // Initialise from cache so navigating back to step 3 shows results instantly
   const [glyphs, setGlyphs] = useState(() => cachedGlyphs)
+  const [deletedIds, setDeletedIds] = useState(new Set())   // ← track deleted glyph ids
   const [qaReport, setQaReport] = useState(null)
   const [status, setStatus] = useState(() => cachedGlyphs.length > 0 ? "done" : "idle")
   const [errorMsg, setErrorMsg] = useState("")
@@ -41,6 +41,40 @@ export default function ExtractionStep({ parsedFile, onGlyphsUpdate, pipelineMac
 
   const visionEngineRef = useRef(null)
   const abortRef = useRef(false)
+
+  // ── Derived: active vs deleted glyphs ───────────────────────────────────────
+  const activeGlyphs = useMemo(
+    () => glyphs.filter(g => !deletedIds.has(g.id)),
+    [glyphs, deletedIds]
+  )
+  const deletedGlyphs = useMemo(
+    () => glyphs.filter(g => deletedIds.has(g.id)),
+    [glyphs, deletedIds]
+  )
+
+  // ── Delete / Restore handlers ────────────────────────────────────────────────
+  const handleDelete = useCallback((id) => {
+    setDeletedIds(prev => new Set([...prev, id]))
+  }, [])
+
+  const handleRestore = useCallback((id) => {
+    setDeletedIds(prev => {
+      const next = new Set(prev)
+      next.delete(id)
+      return next
+    })
+  }, [])
+
+  const handleRestoreAll = useCallback(() => {
+    setDeletedIds(new Set())
+  }, [])
+
+  // Notify parent whenever active set changes
+  useEffect(() => {
+    if (status === "done") {
+      onGlyphsUpdate(activeGlyphs)
+    }
+  }, [activeGlyphs, status]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-calibration from pages ──────────────────────────────────────────────
   const autoProfiles = useMemo(() => {
@@ -57,6 +91,7 @@ export default function ExtractionStep({ parsedFile, onGlyphsUpdate, pipelineMac
     setProgress(0)
     setErrorMsg("")
     setGlyphs([])
+    setDeletedIds(new Set())   // reset deleted when re-extracting
 
     pipelineMachine?.transition(PipelineStates.CALIBRATING)
 
@@ -72,13 +107,11 @@ export default function ExtractionStep({ parsedFile, onGlyphsUpdate, pipelineMac
       pipelineMachine?.transition(PipelineStates.EXTRACTING)
       setProgress(10)
 
-      // VisionEngine.processPages() handles calibration → extract → crop → normalize → score internally
       const result = await engine.processPages(pages, chars, calibration)
 
       setProgress(70)
       pipelineMachine?.transition(PipelineStates.TRACING)
 
-      // Trace SVG paths (potrace) — needed for Step 4 font compilation
       const rawGlyphs = result?.glyphs ?? []
       const traced = rawGlyphs.length > 0 ? await traceAllGlyphs(rawGlyphs) : rawGlyphs
       const finalGlyphs = traced?.length ? traced : rawGlyphs
@@ -87,16 +120,15 @@ export default function ExtractionStep({ parsedFile, onGlyphsUpdate, pipelineMac
       pipelineMachine?.transition(PipelineStates.COMPOSING)
 
       const qaRep = result?.qaReport ?? buildQaReport(finalGlyphs)
-
       setQaReport(qaRep)
-
       setGlyphs(finalGlyphs)
+
       console.log("sample glyph:", JSON.stringify({
         ch: finalGlyphs[0]?.ch,
         viewBox: finalGlyphs[0]?.viewBox,
         svgPath: finalGlyphs[0]?.svgPath?.slice(0, 80)
       }))
-      
+
       onGlyphsUpdate(finalGlyphs)
       setProgress(100)
       setStatus("done")
@@ -110,7 +142,7 @@ export default function ExtractionStep({ parsedFile, onGlyphsUpdate, pipelineMac
     }
   }, [parsedFile, calibration, onGlyphsUpdate, pipelineMachine])
 
-  // Auto-run when parsedFile arrives — skip if already extracted (navigating back)
+  // Auto-run when parsedFile arrives
   useEffect(() => {
     if (parsedFile?.status === "parsed" && parsedFile.characters?.length > 0 && glyphs.length === 0) {
       runExtraction()
@@ -146,7 +178,10 @@ export default function ExtractionStep({ parsedFile, onGlyphsUpdate, pipelineMac
           </h2>
           <p style={{ fontSize: 12, color: C.inkLt, marginTop: 4 }}>
             {chars.length} characters · {parsedFile.pages?.length ?? 0} pages
-            {status === "done" && ` · ${glyphs.length} glyphs extracted`}
+            {status === "done" && ` · ${activeGlyphs.length} glyphs`}
+            {deletedIds.size > 0 && (
+              <span style={{ color: C.blush }}> · {deletedIds.size} deleted</span>
+            )}
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
@@ -216,13 +251,13 @@ export default function ExtractionStep({ parsedFile, onGlyphsUpdate, pipelineMac
             }}
           >
             {t.label}
-            {t.id === "glyphs" && glyphs.length > 0 && (
+            {t.id === "glyphs" && activeGlyphs.length > 0 && (
               <span style={{
                 marginLeft: 6, fontSize: 10, fontWeight: 600,
                 background: C.bgMuted, color: C.inkMd,
                 padding: "1px 6px", borderRadius: 10,
               }}>
-                {glyphs.length}
+                {activeGlyphs.length}
               </span>
             )}
           </button>
@@ -244,13 +279,20 @@ export default function ExtractionStep({ parsedFile, onGlyphsUpdate, pipelineMac
           {status !== "running" && glyphs.length > 0 && (
             <>
               <QADashboard
-                glyphs={glyphs}
+                glyphs={activeGlyphs}
+                deletedGlyphs={deletedGlyphs}
                 qaReport={qaReport}
                 onGlyphSelect={(g) => console.log("[QA] selected:", g)}
                 onRetryExtraction={runExtraction}
+                onDeleteGlyph={handleDelete}
+                onRestoreGlyph={handleRestore}
+                onRestoreAll={handleRestoreAll}
               />
               <div style={{ marginTop: 24 }}>
-                <GridDebugOverlay glyphs={glyphs} />
+                <GridDebugOverlay
+                  glyphs={activeGlyphs}
+                  onDeleteGlyph={handleDelete}
+                />
               </div>
             </>
           )}

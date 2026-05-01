@@ -30,6 +30,27 @@ if (typeof document !== "undefined" && !document.getElementById("skeleton-pulse-
       background-size: 200% 100%;
       animation: skeletonShimmer 1.4s ease-in-out infinite;
     }
+    .glyph-card { position: relative; }
+    .glyph-card .delete-btn {
+      display: none;
+      position: absolute;
+      top: 3px;
+      right: 3px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(200,60,60,0.85);
+      color: #fff;
+      font-size: 9px;
+      line-height: 16px;
+      text-align: center;
+      cursor: pointer;
+      padding: 0;
+      z-index: 2;
+    }
+    .glyph-card:hover .delete-btn { display: block; }
+    .glyph-card .delete-btn:hover { background: rgba(180,30,30,1); }
   `
   document.head.appendChild(s)
 }
@@ -84,18 +105,9 @@ export function GlyphGridSkeleton({ count = 48, progress = 0 }) {
               animationDelay: `${(i % 7) * 0.1}s`,
             }}
           >
-            {/* Glyph image placeholder */}
-            <div className="skel-shimmer" style={{
-              width: "100%", aspectRatio: "1", borderRadius: 5,
-            }} />
-            {/* Char label placeholder */}
-            <div className="skel-shimmer" style={{
-              width: 20, height: 10, borderRadius: 3,
-            }} />
-            {/* Index dot placeholder */}
-            <div className="skel-shimmer" style={{
-              width: 30, height: 7, borderRadius: 3,
-            }} />
+            <div className="skel-shimmer" style={{ width: "100%", aspectRatio: "1", borderRadius: 5 }} />
+            <div className="skel-shimmer" style={{ width: 20, height: 10, borderRadius: 3 }} />
+            <div className="skel-shimmer" style={{ width: 30, height: 7, borderRadius: 3 }} />
           </div>
         ))}
       </div>
@@ -139,7 +151,8 @@ export function Adjuster({ label, value, min, max, step, onChange }) {
   )
 }
 
-export function GridDebugOverlay({ glyphs }) {
+// ── GridDebugOverlay — now with per-card delete button ─────────────────────────
+export function GridDebugOverlay({ glyphs, onDeleteGlyph }) {
   const stStyle = {
     ok:         { border: "rgba(0,160,70,0.5)",   bg: "rgba(0,200,80,0.06)",   dot: "#00a046" },
     missing:    { border: "rgba(200,60,60,0.5)",  bg: "rgba(255,80,80,0.06)",  dot: "#c83c3c" },
@@ -163,8 +176,35 @@ export function GridDebugOverlay({ glyphs }) {
         const hasPreview = !!g.preview
         const hasSvg = !!g.svgPath
         return (
-          <div key={g.id} style={{ background: s.bg, border: `1.5px solid ${s.border}`, borderRadius: 8, padding: "6px 4px 5px", display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-            <div style={{ width: "100%", aspectRatio: "1", background: "#fff", borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+          <div
+            key={g.id}
+            className="glyph-card"
+            style={{
+              background: s.bg,
+              border: `1.5px solid ${s.border}`,
+              borderRadius: 8,
+              padding: "6px 4px 5px",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 3,
+            }}
+          >
+            {/* Delete button — visible on hover via CSS */}
+            {onDeleteGlyph && (
+              <button
+                className="delete-btn"
+                title={`Delete ${g.ch}`}
+                onClick={() => onDeleteGlyph(g.id)}
+              >
+                ✕
+              </button>
+            )}
+
+            <div style={{
+              width: "100%", aspectRatio: "1", background: "#fff", borderRadius: 5,
+              display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden",
+            }}>
               {hasPreview ? (
                 <img src={g.preview} alt={g.ch} style={{ width: "88%", height: "88%", objectFit: "contain", imageRendering: "auto" }} />
               ) : hasSvg ? (
